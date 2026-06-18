@@ -780,6 +780,11 @@ router.post('/rtsi-audits/clear', (req, res) => {
   res.json({ status: 'SUCCESS' });
 });
 
+// GET VROL Import History
+router.get('/imports', (req, res) => {
+  res.json(fileImports);
+});
+
 // Keep existing file upload logic
 router.post('/upload', upload.single('file'), async (req, res) => {
   try {

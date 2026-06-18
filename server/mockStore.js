@@ -111,14 +111,32 @@ let rdrRules = [
   { merchant: 'Test@isu', programId: 'VISA_RDR_CORE', rdrMaxLimit: 120.00, excludedSkus: 'HIGH_RISK_ELECTRONICS' }
 ];
 
+const caidMap = {};
+
 const mapCaidToMerchant = (caid) => {
   if (!caid) return 'masteruser';
   const c = caid.toUpperCase();
+  if (caidMap[c]) return caidMap[c];
   if (c.includes('COLLAB_55') || c.includes('COLLAB_12') || c.includes('MERCH_101') || c.includes('MERCH_102') || c.includes('MERCH_001') || c.includes('MERCH_002') || c.includes('8812') || c.includes('4432') || c.includes('9941') || c.includes('9981') || c.includes('4452') || c.includes('8890') || c.includes('2211') || c.includes('4412')) {
     return 'masteruser';
   }
   return 'Test@isu';
 };
+
+function addCaidMapping(caid, merchant) {
+  caidMap[caid.toUpperCase()] = merchant;
+}
+
+function addUser(user) {
+  const u = {
+    ...user,
+    _id: user.username,
+    toObject: () => ({ ...user, _id: user.username }),
+    save: async () => {}
+  };
+  users.push(u);
+  return u;
+}
 
 function getDeflectionRules(merchant) {
   if (!merchant) return deflectionRules;
@@ -147,6 +165,8 @@ module.exports = {
   resetDemo,
   getUsers,
   findUser,
+  addUser,
+  addCaidMapping,
   updateUserWallet,
   getChargebacks,
   findChargebackById,

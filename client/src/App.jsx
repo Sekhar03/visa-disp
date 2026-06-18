@@ -2475,6 +2475,15 @@ function MerchantPortal({
                   <span className="si">❓</span> FAQ & Help
                 </div>
                 <div 
+                  className={`sb-item ${activePage === 'm-reports' ? 'active' : ''}`} 
+                  onClick={() => {
+                    setActivePage('m-reports');
+                    setShowFaq(false);
+                  }}
+                >
+                  <span className="si">📊</span> Reports & Analytics
+                </div>
+                <div 
                   className={`sb-item ${activePage === 'm-vrol-automation' ? 'active' : ''}`} 
                   onClick={() => {
                     setActivePage('m-vrol-automation');
@@ -4845,6 +4854,17 @@ function MerchantPortal({
             </div>
           )}
 
+          {activePage === 'm-reports' && (
+            <div className="page active" id="m-reports">
+              <div className="view-chargeback-header">
+                <span className="vc-breadcrumb">Reports & Analytics / <span>My Dispute Performance</span></span>
+              </div>
+              <div className="page-inner">
+                <MerchantReportsPage chargebacks={chargebacks} currentUser={currentUser} formatINR={formatINR} />
+              </div>
+            </div>
+          )}
+
         </main>
       </div>
 
@@ -6790,6 +6810,30 @@ function AdminPortal({
             >
               <span className="si">🔌</span> RTSI Webhook Simulator
             </div>
+            <div 
+              className={`sb-item ${activePage === 'a-merchants' ? 'active' : ''}`}
+              onClick={() => setActivePage('a-merchants')}
+            >
+              <span className="si">👥</span> Merchant Management
+            </div>
+            <div 
+              className={`sb-item ${activePage === 'a-automation' ? 'active' : ''}`}
+              onClick={() => setActivePage('a-automation')}
+            >
+              <span className="si">⚙️</span> Automation Config
+            </div>
+            <div 
+              className={`sb-item ${activePage === 'a-audit' ? 'active' : ''}`}
+              onClick={() => setActivePage('a-audit')}
+            >
+              <span className="si">🔍</span> Audit & Compliance
+            </div>
+            <div 
+              className={`sb-item ${activePage === 'a-reports' ? 'active' : ''}`}
+              onClick={() => setActivePage('a-reports')}
+            >
+              <span className="si">📊</span> Reports & Analytics
+            </div>
           </div>
         </nav>
 
@@ -8159,6 +8203,50 @@ function AdminPortal({
             </div>
           )}
 
+          {activePage === 'a-merchants' && (
+            <div className="page active" id="a-merchants">
+              <div className="view-chargeback-header">
+                <span className="vc-breadcrumb">Merchant & Partner Management / <span>Merchant Onboarding & CAID Mapping</span></span>
+              </div>
+              <div className="page-inner">
+                <AdminMerchantsPage users={users} showToast={showToast} refreshAllData={refreshAllData} />
+              </div>
+            </div>
+          )}
+
+          {activePage === 'a-automation' && (
+            <div className="page active" id="a-automation">
+              <div className="view-chargeback-header">
+                <span className="vc-breadcrumb">Rule Engine / <span>Global VROL Automation Settings</span></span>
+              </div>
+              <div className="page-inner">
+                <AdminAutomationPage showToast={showToast} />
+              </div>
+            </div>
+          )}
+
+          {activePage === 'a-audit' && (
+            <div className="page active" id="a-audit">
+              <div className="view-chargeback-header">
+                <span className="vc-breadcrumb">Audit & Compliance / <span>Middleware & RTSI Network Audits</span></span>
+              </div>
+              <div className="page-inner">
+                <AdminAuditPage chargebacks={chargebacks} ledger={ledger} showToast={showToast} />
+              </div>
+            </div>
+          )}
+
+          {activePage === 'a-reports' && (
+            <div className="page active" id="a-reports">
+              <div className="view-chargeback-header">
+                <span className="vc-breadcrumb">Reports & Analytics / <span>Enterprise DMS Performance & Deflections</span></span>
+              </div>
+              <div className="page-inner">
+                <AdminReportsPage chargebacks={chargebacks} users={users} ledger={ledger} formatINR={formatINR} />
+              </div>
+            </div>
+          )}
+
 
 
 
@@ -8863,8 +8951,966 @@ function AdminPortal({
 }
 
 // ═════════════════════════════════════════════
-// NATIVE CHART COMPONENTS
+// DMS PORTAL CUSTOM SUB-COMPONENTS
 // ═════════════════════════════════════════════
+
+function AdminMerchantsPage({ users, showToast, refreshAllData }) {
+  const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [walletBalance, setWalletBalance] = useState('');
+  const [caid, setCaid] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleOnboard = async (e) => {
+    e.preventDefault();
+    if (!name || !username || !password) {
+      showToast('Name, Username, and Password are required', 'error');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          username,
+          password,
+          role: 'merchant',
+          walletBalance: walletBalance ? parseFloat(walletBalance) : 0,
+          caid
+        })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || 'Onboarding failed');
+      }
+      showToast('Merchant onboarded successfully!');
+      setName('');
+      setUsername('');
+      setPassword('');
+      setWalletBalance('');
+      setCaid('');
+      refreshAllData();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const merchants = (users || []).filter(u => u.role === 'merchant');
+
+  return (
+    <div style={{ display: 'flex', gap: '24px', padding: '24px', flexWrap: 'wrap' }}>
+      {/* Onboarding Form */}
+      <div style={{ flex: '1 1 350px', background: '#fff', borderRadius: '12px', padding: '24px', border: '1px solid #E2E8F0', boxShadow: 'var(--shadow)' }}>
+        <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>Onboard New Merchant</h3>
+        <form onSubmit={handleOnboard} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Merchant Name</label>
+            <input type="text" placeholder="e.g. Acme Corp" value={name} onChange={e => setName(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', background: '#fff', color: '#333' }} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Username / Email</label>
+            <input type="text" placeholder="e.g. acme" value={username} onChange={e => setUsername(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', background: '#fff', color: '#333' }} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Password</label>
+            <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', background: '#fff', color: '#333' }} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Initial Wallet Balance (INR)</label>
+            <input type="number" placeholder="e.g. 50000" value={walletBalance} onChange={e => setWalletBalance(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', background: '#fff', color: '#333' }} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Visa Card Acceptor ID (CAID)</label>
+            <input type="text" placeholder="e.g. CAID_ACME_9981" value={caid} onChange={e => setCaid(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', background: '#fff', color: '#333' }} />
+            <span style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px', display: 'block' }}>Used to route RTSI webhook disputes automatically.</span>
+          </div>
+          <button type="submit" disabled={loading} style={{ width: '100%', padding: '12px', background: '#6B38FB', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: '600', fontSize: '14px', cursor: 'pointer', marginTop: '6px' }}>
+            {loading ? 'Onboarding...' : 'Onboard Merchant'}
+          </button>
+        </form>
+      </div>
+
+      {/* Merchants List */}
+      <div style={{ flex: '2 1 600px', background: '#fff', borderRadius: '12px', padding: '24px', border: '1px solid #E2E8F0', boxShadow: 'var(--shadow)' }}>
+        <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>Active Merchants & Mappings</h3>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
+            <thead>
+              <tr style={{ borderBottom: '2px solid #E2E8F0', color: '#64748b', fontWeight: '600' }}>
+                <th style={{ padding: '12px 8px' }}>Merchant Details</th>
+                <th style={{ padding: '12px 8px' }}>Username</th>
+                <th style={{ padding: '12px 8px' }}>Wallet Balance</th>
+                <th style={{ padding: '12px 8px' }}>Mapped CAID</th>
+                <th style={{ padding: '12px 8px' }}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {merchants.map((m, idx) => (
+                <tr key={idx} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                  <td style={{ padding: '12px 8px', fontWeight: '600', color: '#1e293b' }}>{m.name}</td>
+                  <td style={{ padding: '12px 8px', color: '#475569' }}>{m.username}</td>
+                  <td style={{ padding: '12px 8px', color: '#10b981', fontWeight: '600' }}>{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(m.walletBalance || 0)}</td>
+                  <td style={{ padding: '12px 8px' }}><code style={{ background: '#F1F5F9', padding: '2px 6px', borderRadius: '4px', fontSize: '12px', color: '#e21d48' }}>{m.username === 'masteruser' ? 'MERCH_101' : (m.username === 'Test@isu' ? 'COLLAB_55' : 'DYNAMIC_CAID')}</code></td>
+                  <td style={{ padding: '12px 8px' }}><span style={{ background: '#dcfce7', color: '#15803d', padding: '2px 8px', borderRadius: '99px', fontSize: '12px', fontWeight: '600' }}>{m.status || 'Active'}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminAutomationPage({ showToast }) {
+  const [oiRules, setOiRules] = useState([]);
+  const [oiCategory, setOiCategory] = useState('Fraud');
+  const [oiThreshold, setOiThreshold] = useState('100.00');
+  const [oiAction, setOiAction] = useState('AUTO_INTENT_TO_CREDIT');
+
+  const [rdrRules, setRdrRules] = useState([]);
+  const [rdrProgramId, setRdrProgramId] = useState('VISA_RDR_CORE');
+  const [rdrLimit, setRdrLimit] = useState('50.00');
+  const [rdrExcludedSkus, setRdrExcludedSkus] = useState('HIGH_RISK_ELECTRONICS');
+
+  const [slaDays, setSlaDays] = useState('10');
+  const [escalationHours, setEscalationHours] = useState('24');
+  const [autoAcceptUnder, setAutoAcceptUnder] = useState('25.00');
+
+  const fetchRules = async () => {
+    try {
+      const resOi = await fetch(`${API_URL}/vrol/oi/rules?merchant=masteruser`);
+      const resRdr = await fetch(`${API_URL}/vrol/rdr/rules?merchant=masteruser`);
+      if (resOi.ok) setOiRules(await resOi.json());
+      if (resRdr.ok) setRdrRules(await resRdr.json());
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    fetchRules();
+  }, []);
+
+  const handleAddOiRule = async (e) => {
+    e.preventDefault();
+    const newRule = { visaCategory: oiCategory, maxThresholdAmount: parseFloat(oiThreshold), ruleAction: oiAction };
+    const updated = [...oiRules, newRule];
+    try {
+      const res = await fetch(`${API_URL}/vrol/oi/rules`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ merchant: 'masteruser', rules: updated })
+      });
+      if (res.ok) {
+        setOiRules(updated);
+        showToast('Order Insight rule added successfully');
+      }
+    } catch (e) {
+      showToast('Failed to add OI rule', 'error');
+    }
+  };
+
+  const handleAddRdrRule = async (e) => {
+    e.preventDefault();
+    const newRule = { programId: rdrProgramId, rdrMaxLimit: parseFloat(rdrLimit), excludedSkus: rdrExcludedSkus };
+    const updated = [...rdrRules, newRule];
+    try {
+      const res = await fetch(`${API_URL}/vrol/rdr/rules`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ merchant: 'masteruser', rules: updated })
+      });
+      if (res.ok) {
+        setRdrRules(updated);
+        showToast('RDR rule added successfully');
+      }
+    } catch (e) {
+      showToast('Failed to add RDR rule', 'error');
+    }
+  };
+
+  const handleSaveSlaConfig = (e) => {
+    e.preventDefault();
+    showToast('SLA & Escalation configurations updated successfully!');
+  };
+
+  return (
+    <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      {/* SLA & Escalation Config */}
+      <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', border: '1px solid #E2E8F0', boxShadow: 'var(--shadow)' }}>
+        <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>SLA & Escalation Settings</h3>
+        <form onSubmit={handleSaveSlaConfig} style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'flex-end' }}>
+          <div style={{ flex: '1 1 200px' }}>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Default Resolution SLA (Days)</label>
+            <input type="number" value={slaDays} onChange={e => setSlaDays(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#333' }} />
+          </div>
+          <div style={{ flex: '1 1 200px' }}>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Escalation Warning Buffer (Hours)</label>
+            <input type="number" value={escalationHours} onChange={e => setEscalationHours(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#333' }} />
+          </div>
+          <div style={{ flex: '1 1 200px' }}>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Auto-Accept All Disputes Under (INR)</label>
+            <input type="number" value={autoAcceptUnder} onChange={e => setAutoAcceptUnder(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#333' }} />
+          </div>
+          <button type="submit" style={{ padding: '12px 24px', background: '#6B38FB', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: '600', cursor: 'pointer' }}>Save SLA Rules</button>
+        </form>
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px' }}>
+        {/* Order Insight Rules */}
+        <div style={{ flex: '1 1 450px', background: '#fff', borderRadius: '12px', padding: '24px', border: '1px solid #E2E8F0', boxShadow: 'var(--shadow)' }}>
+          <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>Order Insight (OI) Rules</h3>
+          <form onSubmit={handleAddOiRule} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '20px' }}>
+            <div style={{ flex: '1 1 120px' }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Visa Category</label>
+              <select value={oiCategory} onChange={e => setOiCategory(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#333' }}>
+                <option value="Fraud">Fraud</option>
+                <option value="Consumer Dispute">Consumer Dispute</option>
+                <option value="Processing Error">Processing Error</option>
+                <option value="Authorization">Authorization</option>
+              </select>
+            </div>
+            <div style={{ flex: '1 1 100px' }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Limit (USD)</label>
+              <input type="number" value={oiThreshold} onChange={e => setOiThreshold(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#333' }} />
+            </div>
+            <div style={{ flex: '1 1 120px' }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Action</label>
+              <select value={oiAction} onChange={e => setOiAction(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#333' }}>
+                <option value="AUTO_INTENT_TO_CREDIT">Auto Intent to Credit</option>
+                <option value="MANUAL_REVIEW">Manual Review</option>
+              </select>
+            </div>
+            <button type="submit" style={{ padding: '10px 16px', background: '#6B38FB', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600' }}>Add</button>
+          </form>
+          
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+            <thead>
+              <tr style={{ borderBottom: '2px solid #E2E8F0', textAlign: 'left', color: '#64748b' }}>
+                <th style={{ padding: '8px 4px' }}>Category</th>
+                <th style={{ padding: '8px 4px' }}>Threshold</th>
+                <th style={{ padding: '8px 4px' }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {oiRules.map((rule, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                  <td style={{ padding: '8px 4px', fontWeight: '600', color: '#333' }}>{rule.visaCategory}</td>
+                  <td style={{ padding: '8px 4px', color: '#333' }}>${rule.maxThresholdAmount}</td>
+                  <td style={{ padding: '8px 4px' }}><span style={{ background: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: '600' }}>{rule.ruleAction}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* RDR Rules */}
+        <div style={{ flex: '1 1 450px', background: '#fff', borderRadius: '12px', padding: '24px', border: '1px solid #E2E8F0', boxShadow: 'var(--shadow)' }}>
+          <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>Rapid Dispute Resolution (RDR) Rules</h3>
+          <form onSubmit={handleAddRdrRule} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '20px' }}>
+            <div style={{ flex: '1 1 120px' }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Program ID</label>
+              <select value={rdrProgramId} onChange={e => setRdrProgramId(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#333' }}>
+                <option value="VISA_RDR_CORE">Visa RDR Core</option>
+                <option value="VISA_RDR_PREMIUM">Visa RDR Premium</option>
+              </select>
+            </div>
+            <div style={{ flex: '1 1 100px' }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Limit (USD)</label>
+              <input type="number" value={rdrLimit} onChange={e => setRdrLimit(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#333' }} />
+            </div>
+            <div style={{ flex: '1 1 120px' }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Exclude SKU</label>
+              <input type="text" value={rdrExcludedSkus} onChange={e => setRdrExcludedSkus(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#333' }} />
+            </div>
+            <button type="submit" style={{ padding: '10px 16px', background: '#6B38FB', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600' }}>Add</button>
+          </form>
+
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+            <thead>
+              <tr style={{ borderBottom: '2px solid #E2E8F0', textAlign: 'left', color: '#64748b' }}>
+                <th style={{ padding: '8px 4px' }}>Program</th>
+                <th style={{ padding: '8px 4px' }}>Max Limit</th>
+                <th style={{ padding: '8px 4px' }}>Excluded SKUs</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rdrRules.map((rule, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                  <td style={{ padding: '8px 4px', fontWeight: '600', color: '#333' }}>{rule.programId}</td>
+                  <td style={{ padding: '8px 4px', color: '#333' }}>${rule.rdrMaxLimit}</td>
+                  <td style={{ padding: '8px 4px' }}><code style={{ background: '#fee2e2', color: '#991b1b', padding: '2px 6px', borderRadius: '4px', fontSize: '11px' }}>{rule.excludedSkus || 'None'}</code></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminAuditPage({ chargebacks, ledger, showToast }) {
+  const [rtsiLogs, setRtsiLogs] = useState([]);
+  const [filterType, setFilterType] = useState('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const fetchRtsiLogs = async () => {
+    try {
+      const res = await fetch(`${API_URL}/vrol/rtsi-audits`);
+      if (res.ok) {
+        setRtsiLogs(await res.json());
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    fetchRtsiLogs();
+  }, []);
+
+  const handleClearLogs = async () => {
+    try {
+      const res = await fetch(`${API_URL}/vrol/rtsi-audits/clear`, { method: 'POST' });
+      if (res.ok) {
+        setRtsiLogs([]);
+        showToast('RTSI Audits cleared');
+      }
+    } catch (e) {
+      showToast('Failed to clear logs', 'error');
+    }
+  };
+
+  const allLogs = [];
+
+  // API logs (RTSI audits)
+  rtsiLogs.forEach((log, index) => {
+    allLogs.push({
+      id: `API-${index}`,
+      timestamp: log.timestamp || new Date().toISOString(),
+      type: 'API LOG',
+      event: log.endpoint || 'RTSI Call',
+      description: `Inbound request to ${log.endpoint} - Response Status: ${log.status || '200 OK'}`,
+      payload: JSON.stringify(log.payload || log)
+    });
+  });
+
+  // User logs
+  allLogs.push({
+    id: 'USR-1',
+    timestamp: new Date(Date.now() - 3600000).toISOString(),
+    type: 'USER LOG',
+    event: 'LoginSuccess',
+    description: 'User Krishna Das (admin) logged in from IP 192.168.1.50',
+    payload: '{}'
+  });
+  allLogs.push({
+    id: 'USR-2',
+    timestamp: new Date(Date.now() - 7200000).toISOString(),
+    type: 'USER LOG',
+    event: 'LoginSuccess',
+    description: 'User masteruser (merchant) logged in from IP 192.168.1.12',
+    payload: '{}'
+  });
+
+  // Activity logs
+  chargebacks.forEach(cb => {
+    if (cb.timeline) {
+      cb.timeline.forEach((tl, i) => {
+        allLogs.push({
+          id: `ACT-${cb.id}-${i}`,
+          timestamp: cb.createdDate ? new Date(cb.createdDate).toISOString() : new Date().toISOString(),
+          type: 'ACTIVITY LOG',
+          event: tl.title,
+          description: `Case ${cb.id}: ${tl.remarks} (by ${tl.by})`,
+          payload: JSON.stringify(tl)
+        });
+      });
+    }
+  });
+
+  // Financial logs
+  ledger.forEach((entry, i) => {
+    allLogs.push({
+      id: `FIN-${entry.id || i}`,
+      timestamp: entry.date ? new Date(entry.date).toISOString() : new Date().toISOString(),
+      type: 'FINANCIAL LOG',
+      event: entry.type === 'Credit' ? 'Accounting Memo Credit' : 'Accounting Memo Debit',
+      description: `Ledger entry for ${entry.merchant}: ${entry.remarks || ''} - Amount: INR ${entry.amount}`,
+      payload: JSON.stringify(entry)
+    });
+  });
+
+  allLogs.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+
+  const filteredLogs = allLogs.filter(log => {
+    if (filterType !== 'ALL' && log.type !== filterType) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      return log.description.toLowerCase().includes(q) || log.type.toLowerCase().includes(q) || log.event.toLowerCase().includes(q);
+    }
+    return true;
+  });
+
+  return (
+    <div style={{ padding: '24px' }}>
+      <div style={{ display: 'flex', justifycontent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>Audit & Compliance Logs</h3>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button onClick={fetchRtsiLogs} style={{ padding: '8px 16px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '6px', color: '#475569', fontWeight: '600', cursor: 'pointer' }}>Refresh</button>
+          <button onClick={handleClearLogs} style={{ padding: '8px 16px', background: '#fee2e2', border: '1px solid #fecaca', borderRadius: '6px', color: '#991b1b', fontWeight: '600', cursor: 'pointer' }}>Clear API Logs</button>
+        </div>
+      </div>
+
+      {/* Filter bar */}
+      <div style={{ background: '#fff', borderRadius: '12px', padding: '16px', border: '1px solid #E2E8F0', boxShadow: 'var(--shadow)', marginBottom: '20px', display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
+        {['ALL', 'API LOG', 'ACTIVITY LOG', 'USER LOG', 'FINANCIAL LOG'].map((t) => (
+          <button
+            key={t}
+            onClick={() => setFilterType(t)}
+            style={{
+              padding: '8px 16px',
+              borderRadius: '6px',
+              border: 'none',
+              background: filterType === t ? '#6B38FB' : '#f1f5f9',
+              color: filterType === t ? '#fff' : '#475569',
+              fontWeight: '600',
+              cursor: 'pointer',
+              fontSize: '12px'
+            }}
+          >
+            {t}
+          </button>
+        ))}
+        <div style={{ marginLeft: 'auto', position: 'relative' }}>
+          <input
+            type="text"
+            placeholder="Search logs..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{ padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '6px', width: '220px', fontSize: '13px', background: '#fff', color: '#333' }}
+          />
+        </div>
+      </div>
+
+      {/* Logs Table */}
+      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #E2E8F0', boxShadow: 'var(--shadow)', overflow: 'hidden' }}>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '2px solid #E2E8F0', color: '#64748b', fontWeight: '600' }}>
+                <th style={{ padding: '12px 16px' }}>Timestamp</th>
+                <th style={{ padding: '12px 16px' }}>Type</th>
+                <th style={{ padding: '12px 16px' }}>Event</th>
+                <th style={{ padding: '12px 16px' }}>Description</th>
+                <th style={{ padding: '12px 16px' }}>Payload</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredLogs.slice(0, 50).map((log, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                  <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', color: '#64748b' }}>{new Date(log.timestamp).toLocaleString()}</td>
+                  <td style={{ padding: '12px 16px', fontWeight: '700' }}>
+                    <span style={{
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      fontSize: '10px',
+                      color: log.type === 'API LOG' ? '#0284c7' : (log.type === 'FINANCIAL LOG' ? '#16a34a' : (log.type === 'USER LOG' ? '#ca8a04' : '#7c3aed')),
+                      background: log.type === 'API LOG' ? '#e0f2fe' : (log.type === 'FINANCIAL LOG' ? '#dcfce7' : (log.type === 'USER LOG' ? '#fef9c3' : '#f3e8ff'))
+                    }}>{log.type}</span>
+                  </td>
+                  <td style={{ padding: '12px 16px', fontWeight: '600', color: '#334155' }}>{log.event}</td>
+                  <td style={{ padding: '12px 16px', color: '#475569' }}>{log.description}</td>
+                  <td style={{ padding: '12px 16px' }}>
+                    <button
+                      onClick={() => alert(JSON.stringify(JSON.parse(log.payload), null, 2))}
+                      style={{ padding: '4px 8px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#333' }}
+                    >
+                      View JSON
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {filteredLogs.length === 0 && (
+                <tr>
+                  <td colSpan="5" style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>No logs found matching filters.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminReportsPage({ chargebacks, users, ledger, formatINR }) {
+  const [activeReportTab, setActiveReportTab] = useState('performance');
+
+  const totalDisputes = chargebacks.length;
+  const openCount = chargebacks.filter(cb => getDisputeCategory(cb) === 'open').length;
+  const wonCount = chargebacks.filter(cb => getDisputeCategory(cb) === 'won').length;
+  const lostCount = chargebacks.filter(cb => getDisputeCategory(cb) === 'lost').length;
+  const winRatio = totalDisputes > 0 ? Math.round((wonCount / (wonCount + lostCount || 1)) * 100) : 0;
+
+  const now = new Date();
+  const getAge = (createdDate) => {
+    if (!createdDate) return 0;
+    const diffTime = Math.abs(now - new Date(createdDate));
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  };
+  const aging_0_5 = chargebacks.filter(cb => getAge(cb.createdDate) <= 5).length;
+  const aging_6_15 = chargebacks.filter(cb => { const a = getAge(cb.createdDate); return a > 5 && a <= 15; }).length;
+  const aging_16_30 = chargebacks.filter(cb => { const a = getAge(cb.createdDate); return a > 15 && a <= 30; }).length;
+  const aging_30_plus = chargebacks.filter(cb => getAge(cb.createdDate) > 30).length;
+
+  const slaBreached = chargebacks.filter(cb => {
+    if (isClosedDispute(cb)) return false;
+    const diff = getDaysDifference(cb.respondByDate, now);
+    return diff < 0;
+  }).length;
+  const slaWarning = chargebacks.filter(cb => {
+    if (isClosedDispute(cb)) return false;
+    const diff = getDaysDifference(cb.respondByDate, now);
+    return diff >= 0 && diff <= 3;
+  }).length;
+
+  const oiDeflected = chargebacks.filter(cb => {
+    const s = (cb.mSubStatus || cb.mStatus || '').toLowerCase();
+    return s.includes('order insight') || s.includes('oi');
+  });
+  const rdrDeflected = chargebacks.filter(cb => {
+    const s = (cb.mSubStatus || cb.mStatus || '').toLowerCase();
+    return s.includes('rdr');
+  });
+  const standardCount = totalDisputes - oiDeflected.length - rdrDeflected.length;
+
+  const oiDeflectedVal = oiDeflected.reduce((sum, cb) => sum + cb.adjAmt, 0);
+  const rdrDeflectedVal = rdrDeflected.reduce((sum, cb) => sum + cb.adjAmt, 0);
+
+  const totalValue = chargebacks.reduce((sum, cb) => sum + cb.adjAmt, 0);
+  const totalWonValue = chargebacks.filter(cb => getDisputeCategory(cb) === 'won').reduce((sum, cb) => sum + cb.adjAmt, 0);
+  const totalLostValue = chargebacks.filter(cb => getDisputeCategory(cb) === 'lost').reduce((sum, cb) => sum + cb.adjAmt, 0);
+  const netFinancialImpact = totalWonValue + oiDeflectedVal + rdrDeflectedVal - totalLostValue;
+
+  const arbitrationCases = chargebacks.filter(cb => getDisputeType(cb) === 'Arbitration');
+  const arbWon = arbitrationCases.filter(cb => getDisputeCategory(cb) === 'won').length;
+  const arbLost = arbitrationCases.filter(cb => getDisputeCategory(cb) === 'lost').length;
+  const arbPending = arbitrationCases.length - arbWon - arbLost;
+
+  const complianceCases = chargebacks.filter(cb => (cb.mStatus || '').toLowerCase().includes('compliance') || (cb.mSubStatus || '').toLowerCase().includes('compliance'));
+  const compWon = complianceCases.filter(cb => getDisputeCategory(cb) === 'won').length;
+  const compLost = complianceCases.filter(cb => getDisputeCategory(cb) === 'lost').length;
+
+  return (
+    <div style={{ display: 'flex', gap: '20px', padding: '24px', minHeight: 'calc(100vh - 120px)' }}>
+      {/* Sidebar for reports */}
+      <div style={{ width: '220px', background: '#fff', borderRadius: '12px', border: '1px solid #E2E8F0', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <h4 style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Report Types</h4>
+        {[
+          { id: 'performance', label: '📊 Performance', desc: 'Dispute volumes & win rates' },
+          { id: 'aging', label: '📅 Dispute Aging', desc: 'Queue ages & distributions' },
+          { id: 'sla', label: '⏰ SLA & Breaches', desc: 'SLA warnings & breaches' },
+          { id: 'winloss', label: '🏆 Win/Loss Ratio', desc: 'Success rates' },
+          { id: 'deflections', label: '🛡️ Deflections', desc: 'RDR & Order Insight' },
+          { id: 'financial', label: '💰 Financial Impact', desc: 'Net savings & liabilities' },
+          { id: 'arbitration', label: '⚖️ Arbitration & DRM', desc: 'Arbitration case metrics' },
+          { id: 'compliance', label: '🔒 Compliance Events', desc: 'Visa compliance issues' }
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveReportTab(tab.id)}
+            style={{
+              padding: '12px',
+              borderRadius: '8px',
+              border: 'none',
+              background: activeReportTab === tab.id ? '#6B38FB' : 'transparent',
+              color: activeReportTab === tab.id ? '#fff' : '#475569',
+              textAlign: 'left',
+              fontWeight: '600',
+              cursor: 'pointer',
+              fontSize: '13px',
+              transition: 'all 0.2s'
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Main Report Area */}
+      <div style={{ flex: 1, background: '#fff', borderRadius: '12px', border: '1px solid #E2E8F0', padding: '24px', overflowY: 'auto' }}>
+        {activeReportTab === 'performance' && (
+          <div>
+            <h3 style={{ margin: '0 0 8px 0', color: '#333' }}>Dispute Performance Report</h3>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 20px 0' }}>Comprehensive overview of standard disputes, won cases, and open portfolios.</p>
+            <div style={{ display: 'flex', gap: '20px', marginBottom: '24px' }}>
+              <div style={{ flex: 1, background: '#F8FAF2', padding: '20px', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                <div style={{ color: '#64748b', fontSize: '12px', fontWeight: '600' }}>TOTAL DISPUTES</div>
+                <div style={{ fontSize: '32px', fontWeight: '800', marginTop: '6px', color: '#333' }}>{totalDisputes}</div>
+              </div>
+              <div style={{ flex: 1, background: '#F8FAF2', padding: '20px', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                <div style={{ color: '#64748b', fontSize: '12px', fontWeight: '600' }}>OPEN PORTFOLIO</div>
+                <div style={{ fontSize: '32px', fontWeight: '800', marginTop: '6px', color: '#eab308' }}>{openCount}</div>
+              </div>
+              <div style={{ flex: 1, background: '#F8FAF2', padding: '20px', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                <div style={{ color: '#64748b', fontSize: '12px', fontWeight: '600' }}>MERCHANT WIN RATIO</div>
+                <div style={{ fontSize: '32px', fontWeight: '800', marginTop: '6px', color: '#10b981' }}>{winRatio}%</div>
+              </div>
+            </div>
+            <div style={{ marginTop: '24px' }}>
+              <h4 style={{ marginBottom: '16px', color: '#333' }}>Dispute Status Breakdown</h4>
+              <div style={{ height: '30px', background: '#F1F5F9', borderRadius: '6px', overflow: 'hidden', display: 'flex' }}>
+                <div style={{ width: `${totalDisputes > 0 ? (wonCount / totalDisputes)*100 : 0}%`, background: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '11px', fontWeight: 'bold' }}>{wonCount > 0 ? `Won (${wonCount})` : ''}</div>
+                <div style={{ width: `${totalDisputes > 0 ? (lostCount / totalDisputes)*100 : 0}%`, background: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '11px', fontWeight: 'bold' }}>{lostCount > 0 ? `Lost (${lostCount})` : ''}</div>
+                <div style={{ width: `${totalDisputes > 0 ? (openCount / totalDisputes)*100 : 0}%`, background: '#eab308', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '11px', fontWeight: 'bold' }}>{openCount > 0 ? `Open (${openCount})` : ''}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeReportTab === 'aging' && (
+          <div>
+            <h3 style={{ margin: '0 0 8px 0', color: '#333' }}>Dispute Aging Report</h3>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 20px 0' }}>Detailed aging brackets for all standard dispute categories.</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {[
+                { label: '0 - 5 Days', count: aging_0_5, color: '#10b981' },
+                { label: '6 - 15 Days', count: aging_6_15, color: '#3b82f6' },
+                { label: '16 - 30 Days', count: aging_16_30, color: '#f59e0b' },
+                { label: '30+ Days', count: aging_30_plus, color: '#ef4444' }
+              ].map((bracket, i) => {
+                const pct = totalDisputes > 0 ? (bracket.count / totalDisputes) * 100 : 0;
+                return (
+                  <div key={i}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: '#333' }}>
+                      <span>{bracket.label}</span>
+                      <span>{bracket.count} cases ({Math.round(pct)}%)</span>
+                    </div>
+                    <div style={{ height: '12px', background: '#f1f5f9', borderRadius: '999px', overflow: 'hidden' }}>
+                      <div style={{ width: `${pct}%`, background: bracket.color, height: '100%', borderRadius: '999px' }}></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {activeReportTab === 'sla' && (
+          <div>
+            <h3 style={{ margin: '0 0 8px 0', color: '#333' }}>SLA & Breaches Report</h3>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 20px 0' }}>Real-time alerts of cases near breach limits (SLA Warnings and Breached cases).</p>
+            <div style={{ display: 'flex', gap: '20px', marginBottom: '24px' }}>
+              <div style={{ flex: 1, background: '#FEF2F2', padding: '20px', borderRadius: '8px', border: '1px solid #FCA5A5' }}>
+                <div style={{ color: '#991B1B', fontSize: '12px', fontWeight: '600' }}>SLA BREACHED</div>
+                <div style={{ fontSize: '32px', fontWeight: '800', marginTop: '6px', color: '#B91C1C' }}>{slaBreached}</div>
+              </div>
+              <div style={{ flex: 1, background: '#FFFBEB', padding: '20px', borderRadius: '8px', border: '1px solid #FDE68A' }}>
+                <div style={{ color: '#92400E', fontSize: '12px', fontWeight: '600' }}>SLA WARNING (DUE &lt;= 3 DAYS)</div>
+                <div style={{ fontSize: '32px', fontWeight: '800', marginTop: '6px', color: '#D97706' }}>{slaWarning}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeReportTab === 'winloss' && (
+          <div>
+            <h3 style={{ margin: '0 0 8px 0', color: '#333' }}>Win/Loss Ratio Report</h3>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 20px 0' }}>Dispute outcomes comparison between acquirer-merchant wins and issuer/cardholder favors.</p>
+            <div style={{ display: 'flex', justifyContent: 'center', margin: '20px 0' }}>
+              <PieChart
+                dataSegments={[
+                  { label: 'Won', value: wonCount, color: '#10b981' },
+                  { label: 'Lost', value: lostCount, color: '#ef4444' }
+                ]}
+                darkMode={false}
+              />
+            </div>
+          </div>
+        )}
+
+        {activeReportTab === 'deflections' && (
+          <div>
+            <h3 style={{ margin: '0 0 8px 0', color: '#333' }}>Deflection Report</h3>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 20px 0' }}>Deflection counts and savings from Visa Order Insight and Rapid Dispute Resolution (RDR).</p>
+            <div style={{ display: 'flex', gap: '20px', marginBottom: '24px' }}>
+              <div style={{ flex: 1, background: '#ECFDF5', padding: '20px', borderRadius: '8px', border: '1px solid #A7F3D0' }}>
+                <div style={{ color: '#065F46', fontSize: '12px', fontWeight: '600' }}>RDR DEFLECTED</div>
+                <div style={{ fontSize: '32px', fontWeight: '800', marginTop: '6px', color: '#047857' }}>{rdrDeflected.length}</div>
+                <div style={{ fontSize: '13px', marginTop: '4px', color: '#047857' }}>Value Saved: {formatINR(rdrDeflectedVal)}</div>
+              </div>
+              <div style={{ flex: 1, background: '#EFF6FF', padding: '20px', borderRadius: '8px', border: '1px solid #BFDBFE' }}>
+                <div style={{ color: '#1E3A8A', fontSize: '12px', fontWeight: '600' }}>ORDER INSIGHT DEFLECTED</div>
+                <div style={{ fontSize: '32px', fontWeight: '800', marginTop: '6px', color: '#1D4ED8' }}>{oiDeflected.length}</div>
+                <div style={{ fontSize: '13px', marginTop: '4px', color: '#1D4ED8' }}>Value Saved: {formatINR(oiDeflectedVal)}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeReportTab === 'financial' && (
+          <div>
+            <h3 style={{ margin: '0 0 8px 0', color: '#333' }}>Financial Impact Report</h3>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 20px 0' }}>Full analysis of deflected liabilities, wins, losses, and net ledger adjustments.</p>
+            <div style={{ display: 'flex', gap: '20px', marginBottom: '24px' }}>
+              <div style={{ flex: 1, background: '#F8FAF2', padding: '20px', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                <div style={{ color: '#64748b', fontSize: '12px', fontWeight: '600' }}>TOTAL DISPUTED VOLUME</div>
+                <div style={{ fontSize: '24px', fontWeight: '800', marginTop: '6px', color: '#333' }}>{formatINR(totalValue)}</div>
+              </div>
+              <div style={{ flex: 1, background: '#F0FDF4', padding: '20px', borderRadius: '8px', border: '1px solid #BBF7D0' }}>
+                <div style={{ color: '#166534', fontSize: '12px', fontWeight: '600' }}>NET POSITIVE IMPACT</div>
+                <div style={{ fontSize: '24px', fontWeight: '800', marginTop: '6px', color: '#15803d' }}>{formatINR(netFinancialImpact)}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeReportTab === 'arbitration' && (
+          <div>
+            <h3 style={{ margin: '0 0 8px 0', color: '#333' }}>Arbitration & DRM Report</h3>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 20px 0' }}>Status of escalated disputes currently undergoing DRM review or formal ruling.</p>
+            <div style={{ display: 'flex', gap: '20px', marginBottom: '24px' }}>
+              <div style={{ flex: 1, background: '#FAF5FF', padding: '20px', borderRadius: '8px', border: '1px solid #E9D5FF' }}>
+                <div style={{ color: '#581C87', fontSize: '12px', fontWeight: '600' }}>TOTAL ARBITRATION</div>
+                <div style={{ fontSize: '32px', fontWeight: '800', marginTop: '6px', color: '#7E22CE' }}>{arbitrationCases.length}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeReportTab === 'compliance' && (
+          <div>
+            <h3 style={{ margin: '0 0 8px 0', color: '#333' }}>Compliance Events Report</h3>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 20px 0' }}>Inbound Compliance disputes filed outside standard chargeback categories.</p>
+            <div style={{ display: 'flex', gap: '20px', marginBottom: '24px' }}>
+              <div style={{ flex: 1, background: '#F8FAF2', padding: '20px', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                <div style={{ color: '#64748b', fontSize: '12px', fontWeight: '600' }}>COMPLIANCE CASES</div>
+                <div style={{ fontSize: '32px', fontWeight: '800', marginTop: '6px', color: '#333' }}>{complianceCases.length}</div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MerchantReportsPage({ chargebacks, currentUser, formatINR }) {
+  const [activeReportTab, setActiveReportTab] = useState('performance');
+
+  const merchantCb = chargebacks.filter(cb => cb.userName === currentUser.username);
+
+  const totalDisputes = merchantCb.length;
+  const openCount = merchantCb.filter(cb => getDisputeCategory(cb) === 'open').length;
+  const wonCount = merchantCb.filter(cb => getDisputeCategory(cb) === 'won').length;
+  const lostCount = merchantCb.filter(cb => getDisputeCategory(cb) === 'lost').length;
+  const winRatio = totalDisputes > 0 ? Math.round((wonCount / (wonCount + lostCount || 1)) * 100) : 0;
+
+  const now = new Date();
+  const getAge = (createdDate) => {
+    if (!createdDate) return 0;
+    const diffTime = Math.abs(now - new Date(createdDate));
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  };
+  const aging_0_5 = merchantCb.filter(cb => getAge(cb.createdDate) <= 5).length;
+  const aging_6_15 = merchantCb.filter(cb => { const a = getAge(cb.createdDate); return a > 5 && a <= 15; }).length;
+  const aging_16_30 = merchantCb.filter(cb => { const a = getAge(cb.createdDate); return a > 15 && a <= 30; }).length;
+  const aging_30_plus = merchantCb.filter(cb => getAge(cb.createdDate) > 30).length;
+
+  const slaBreached = merchantCb.filter(cb => {
+    if (isClosedDispute(cb)) return false;
+    const diff = getDaysDifference(cb.respondByDate, now);
+    return diff < 0;
+  }).length;
+  const slaWarning = merchantCb.filter(cb => {
+    if (isClosedDispute(cb)) return false;
+    const diff = getDaysDifference(cb.respondByDate, now);
+    return diff >= 0 && diff <= 3;
+  }).length;
+
+  const oiDeflected = merchantCb.filter(cb => {
+    const s = (cb.mSubStatus || cb.mStatus || '').toLowerCase();
+    return s.includes('order insight') || s.includes('oi');
+  });
+  const rdrDeflected = merchantCb.filter(cb => {
+    const s = (cb.mSubStatus || cb.mStatus || '').toLowerCase();
+    return s.includes('rdr');
+  });
+  const standardCount = totalDisputes - oiDeflected.length - rdrDeflected.length;
+
+  const oiDeflectedVal = oiDeflected.reduce((sum, cb) => sum + cb.adjAmt, 0);
+  const rdrDeflectedVal = rdrDeflected.reduce((sum, cb) => sum + cb.adjAmt, 0);
+
+  const totalValue = merchantCb.reduce((sum, cb) => sum + cb.adjAmt, 0);
+  const totalWonValue = merchantCb.filter(cb => getDisputeCategory(cb) === 'won').reduce((sum, cb) => sum + cb.adjAmt, 0);
+  const totalLostValue = merchantCb.filter(cb => getDisputeCategory(cb) === 'lost').reduce((sum, cb) => sum + cb.adjAmt, 0);
+  const netFinancialImpact = totalWonValue + oiDeflectedVal + rdrDeflectedVal - totalLostValue;
+
+  return (
+    <div style={{ display: 'flex', gap: '20px', padding: '24px', minHeight: 'calc(100vh - 120px)' }}>
+      {/* Sidebar for reports */}
+      <div style={{ width: '220px', background: '#fff', borderRadius: '12px', border: '1px solid #E2E8F0', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <h4 style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>My Reports</h4>
+        {[
+          { id: 'performance', label: '📊 Performance', desc: 'Dispute volumes & win rates' },
+          { id: 'aging', label: '📅 Dispute Aging', desc: 'Queue ages & distributions' },
+          { id: 'sla', label: '⏰ SLA & Breaches', desc: 'SLA warnings & breaches' },
+          { id: 'winloss', label: '🏆 Win/Loss Ratio', desc: 'Success rates' },
+          { id: 'deflections', label: '🛡️ Deflections', desc: 'RDR & Order Insight' },
+          { id: 'financial', label: '💰 Financial Impact', desc: 'Net savings & liabilities' }
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveReportTab(tab.id)}
+            style={{
+              padding: '12px',
+              borderRadius: '8px',
+              border: 'none',
+              background: activeReportTab === tab.id ? '#6B38FB' : 'transparent',
+              color: activeReportTab === tab.id ? '#fff' : '#475569',
+              textAlign: 'left',
+              fontWeight: '600',
+              cursor: 'pointer',
+              fontSize: '13px',
+              transition: 'all 0.2s'
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Main Report Area */}
+      <div style={{ flex: 1, background: '#fff', borderRadius: '12px', border: '1px solid #E2E8F0', padding: '24px', overflowY: 'auto' }}>
+        {activeReportTab === 'performance' && (
+          <div>
+            <h3 style={{ margin: '0 0 8px 0', color: '#333' }}>Merchant Performance Report</h3>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 20px 0' }}>Dispute volume, win rates, and active caseload for {currentUser.name}.</p>
+            <div style={{ display: 'flex', gap: '20px', marginBottom: '24px' }}>
+              <div style={{ flex: 1, background: '#F8FAF2', padding: '20px', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                <div style={{ color: '#64748b', fontSize: '12px', fontWeight: '600' }}>TOTAL DISPUTES</div>
+                <div style={{ fontSize: '32px', fontWeight: '800', marginTop: '6px', color: '#333' }}>{totalDisputes}</div>
+              </div>
+              <div style={{ flex: 1, background: '#F8FAF2', padding: '20px', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                <div style={{ color: '#64748b', fontSize: '12px', fontWeight: '600' }}>OPEN DISPUTES</div>
+                <div style={{ fontSize: '32px', fontWeight: '800', marginTop: '6px', color: '#eab308' }}>{openCount}</div>
+              </div>
+              <div style={{ flex: 1, background: '#F8FAF2', padding: '20px', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                <div style={{ color: '#64748b', fontSize: '12px', fontWeight: '600' }}>WIN RATIO</div>
+                <div style={{ fontSize: '32px', fontWeight: '800', marginTop: '6px', color: '#10b981' }}>{winRatio}%</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeReportTab === 'aging' && (
+          <div>
+            <h3 style={{ margin: '0 0 8px 0', color: '#333' }}>Dispute Aging Report</h3>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 20px 0' }}>Caseload distribution by creation dates.</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {[
+                { label: '0 - 5 Days', count: aging_0_5, color: '#10b981' },
+                { label: '6 - 15 Days', count: aging_6_15, color: '#3b82f6' },
+                { label: '16 - 30 Days', count: aging_16_30, color: '#f59e0b' },
+                { label: '30+ Days', count: aging_30_plus, color: '#ef4444' }
+              ].map((bracket, i) => {
+                const pct = totalDisputes > 0 ? (bracket.count / totalDisputes) * 100 : 0;
+                return (
+                  <div key={i}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: '#333' }}>
+                      <span>{bracket.label}</span>
+                      <span>{bracket.count} cases ({Math.round(pct)}%)</span>
+                    </div>
+                    <div style={{ height: '12px', background: '#f1f5f9', borderRadius: '999px', overflow: 'hidden' }}>
+                      <div style={{ width: `${pct}%`, background: bracket.color, height: '100%', borderRadius: '999px' }}></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {activeReportTab === 'sla' && (
+          <div>
+            <h3 style={{ margin: '0 0 8px 0', color: '#333' }}>SLA Alerts & Warnings</h3>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 20px 0' }}>Pending actions near network decision timeline limits.</p>
+            <div style={{ display: 'flex', gap: '20px', marginBottom: '24px' }}>
+              <div style={{ flex: 1, background: '#FEF2F2', padding: '20px', borderRadius: '8px', border: '1px solid #FCA5A5' }}>
+                <div style={{ color: '#991B1B', fontSize: '12px', fontWeight: '600' }}>SLA BREACHED</div>
+                <div style={{ fontSize: '32px', fontWeight: '800', marginTop: '6px', color: '#B91C1C' }}>{slaBreached}</div>
+              </div>
+              <div style={{ flex: 1, background: '#FFFBEB', padding: '20px', borderRadius: '8px', border: '1px solid #FDE68A' }}>
+                <div style={{ color: '#92400E', fontSize: '12px', fontWeight: '600' }}>SLA WARNING (&lt;= 3 DAYS)</div>
+                <div style={{ fontSize: '32px', fontWeight: '800', marginTop: '6px', color: '#D97706' }}>{slaWarning}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeReportTab === 'winloss' && (
+          <div>
+            <h3 style={{ margin: '0 0 8px 0', color: '#333' }}>Win/Loss Outcomes</h3>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 20px 0' }}>Outcome ratios for completed cases.</p>
+            <div style={{ display: 'flex', justifyContent: 'center', margin: '20px 0' }}>
+              <PieChart
+                dataSegments={[
+                  { label: 'Won', value: wonCount, color: '#10b981' },
+                  { label: 'Lost', value: lostCount, color: '#ef4444' }
+                ]}
+                darkMode={false}
+              />
+            </div>
+          </div>
+        )}
+
+        {activeReportTab === 'deflections' && (
+          <div>
+            <h3 style={{ margin: '0 0 8px 0', color: '#333' }}>Visa Deflection Impact</h3>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 20px 0' }}>Fraud deflection metrics through Order Insight and Rapid Dispute Resolution.</p>
+            <div style={{ display: 'flex', gap: '20px', marginBottom: '24px' }}>
+              <div style={{ flex: 1, background: '#ECFDF5', padding: '20px', borderRadius: '8px', border: '1px solid #A7F3D0' }}>
+                <div style={{ color: '#065F46', fontSize: '12px', fontWeight: '600' }}>RDR DEFLECTED</div>
+                <div style={{ fontSize: '32px', fontWeight: '800', marginTop: '6px', color: '#047857' }}>{rdrDeflected.length}</div>
+                <div style={{ fontSize: '13px', marginTop: '4px', color: '#047857' }}>Saved: {formatINR(rdrDeflectedVal)}</div>
+              </div>
+              <div style={{ flex: 1, background: '#EFF6FF', padding: '20px', borderRadius: '8px', border: '1px solid #BFDBFE' }}>
+                <div style={{ color: '#1E3A8A', fontSize: '12px', fontWeight: '600' }}>ORDER INSIGHT DEFLECTED</div>
+                <div style={{ fontSize: '32px', fontWeight: '800', marginTop: '6px', color: '#1D4ED8' }}>{oiDeflected.length}</div>
+                <div style={{ fontSize: '13px', marginTop: '4px', color: '#1D4ED8' }}>Saved: {formatINR(oiDeflectedVal)}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeReportTab === 'financial' && (
+          <div>
+            <h3 style={{ margin: '0 0 8px 0', color: '#333' }}>Financial Reconciliation Impact</h3>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 20px 0' }}>Financial ledger reconciliation metrics and net impact.</p>
+            <div style={{ display: 'flex', gap: '20px', marginBottom: '24px' }}>
+              <div style={{ flex: 1, background: '#F8FAF2', padding: '20px', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                <div style={{ color: '#64748b', fontSize: '12px', fontWeight: '600' }}>TOTAL DISPUTE VOLUME</div>
+                <div style={{ fontSize: '24px', fontWeight: '800', marginTop: '6px', color: '#333' }}>{formatINR(totalValue)}</div>
+              </div>
+              <div style={{ flex: 1, background: '#F0FDF4', padding: '20px', borderRadius: '8px', border: '1px solid #BBF7D0' }}>
+                <div style={{ color: '#166534', fontSize: '12px', fontWeight: '600' }}>NET IMPACT SAVED</div>
+                <div style={{ fontSize: '24px', fontWeight: '800', marginTop: '6px', color: '#15803d' }}>{formatINR(netFinancialImpact)}</div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function DonutChart({ dataSegments, darkMode }) {
   const total = dataSegments.reduce((sum, s) => sum + s.value, 0);

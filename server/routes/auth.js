@@ -933,6 +933,51 @@ router.get('/:username', async (req, res) => {
   }
 });
 
+// Onboard user
+router.post('/', async (req, res) => {
+  const { username, password, role, name, walletBalance, caid } = req.body;
+  try {
+    if (global.MOCK_MODE) {
+      const mockStore = require('../mockStore');
+      const existing = mockStore.findUser({ username });
+      if (existing) {
+        return res.status(400).json({ message: 'User already exists' });
+      }
+      const newUser = mockStore.addUser({
+        username,
+        password,
+        role: role || 'merchant',
+        name,
+        walletBalance: parseFloat(walletBalance) || 0,
+        status: 'active',
+        partnerId: null
+      });
+      if (caid) {
+        mockStore.addCaidMapping(caid, username);
+      }
+      return res.status(201).json(newUser);
+    }
+    
+    const User = require('../models/User');
+    const existing = await User.findOne({ username });
+    if (existing) {
+      return res.status(400).json({ message: 'User already exists' });
+    }
+    const newUser = await User.create({
+      username,
+      password,
+      role: role || 'merchant',
+      name,
+      walletBalance: parseFloat(walletBalance) || 0,
+      status: 'active',
+      partnerId: null
+    });
+    res.status(201).json(newUser);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 module.exports = router;
 module.exports.buildSeedData = buildSeedData;
 
