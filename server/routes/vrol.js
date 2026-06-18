@@ -13,7 +13,59 @@ const upload = multer({ dest: 'uploads/vrol/' });
 // In-memory file imports log for demo purposes
 const fileImports = [];
 // In-memory RTSI API Audit logs
-const rtsiAuditLogs = [];
+const rtsiAuditLogs = [
+  {
+    id: 'RTSI-1718712300000-001',
+    time: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+    endpoint: '/oi/inquiry',
+    method: 'POST',
+    requestPayload: {
+      visaTxId: "987654321012345",
+      merchantCaid: "MERCH_ACQ_9981",
+      arn: "74123456789012345678901",
+      txTimestamp: "2026-06-15T14:32:00Z",
+      amount: "149.99",
+      currencyIso: "840",
+      disputeCategoryCode: "Fraud"
+    },
+    responsePayload: {
+      status: "RESOLVED_DEFLECTED",
+      digitalReceipt: {
+        customerAccountName: "Jane Doe",
+        productDigitalDescription: "Premium SaaS Subscription - Annual",
+        customerDeviceIpAddress: "192.168.1.45",
+        deviceFingerprintHash: "a7b8c9d0e1f2g3h4i5j6k7l8m9n0o1p2",
+        shippingCarrierStatus: "FULFILLED_DIGITAL_DELIVERY",
+        productCategory: "Digital SaaS"
+      },
+      message: "Compiled digital receipt transmitted successfully via RTSI."
+    },
+    status: 200,
+    comments: "Deflected via digital receipt compilation. Time elapsed: 142ms"
+  },
+  {
+    id: 'RTSI-1718712300000-002',
+    time: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    endpoint: '/rdr/alert',
+    method: 'POST',
+    requestPayload: {
+      vrolCaseId: "RDR-771120A",
+      disputeCondition: "10.1: EMV Fraud Counterfeit",
+      disputeAmount: "22.50",
+      currency: "USD",
+      productSku: "DIGITAL_COIN_X1",
+      merchantCaid: "CAID_MERCH_001"
+    },
+    responsePayload: {
+      status: "RDR_ACCEPTED",
+      vrolCaseId: "RDR-771120A",
+      merchantSynced: true,
+      message: "Automated Rapid Dispute Resolution successfully accepted and ledger processed."
+    },
+    status: 200,
+    comments: "Automated RDR credit adjusted. ERP webhook synced."
+  }
+];
 
 // Helper to push RTSI Audit Log
 const logRTSIAudit = (endpoint, method, requestPayload, responsePayload, status, comments) => {
