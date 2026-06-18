@@ -218,6 +218,20 @@ const ensureTodaySLA = (list) => {
 
 const renderDisputeStatusBadge = (s) => {
   const m = {
+    'VROL Import': 'badge-new',
+    'New Dispute': 'badge-new',
+    'Action Required': 'badge-resubmit',
+    'Document Pending': 'badge-progress',
+    'Evidence Submitted': 'badge-progress',
+    'Under Review': 'badge-progress',
+    'Representment Ready': 'badge-won',
+    'Representment Submitted': 'badge-progress',
+    'Awaiting Visa Decision': 'badge-progress',
+    'Pre-Arbitration Review Required': 'badge-resubmit',
+    'Arbitration Review': 'badge-progress',
+    'Final Decision': 'badge-won',
+    'Won': 'badge-won',
+    'Lost': 'badge-lost',
     'Chargeback New': 'badge-new',
     'Chargeback Lost': 'badge-lost',
     'Arbitration Lost': 'badge-lost',
@@ -232,6 +246,13 @@ const renderDisputeStatusBadge = (s) => {
     'Document Rejected': 'badge-resubmit',
     'Refund Success': 'badge-won',
     'Refund On Hold': 'badge-progress',
+    'Resolved - Deflected via OI Credit': 'badge-won',
+    'Pre-Dispute - Deflected via Order Insight': 'badge-won',
+    'Resolved - Deflected via RDR': 'badge-won',
+    'Action Required - Awaiting Merchant Input': 'badge-resubmit',
+    'Representment Submitted - Awaiting Network Ruling': 'badge-progress',
+    'Pre-Arbitration - Review Required': 'badge-resubmit',
+    'Document pending for Merchant': 'badge-progress'
   };
   return <span className={`badge ${m[s] || 'badge-pending'}`}>{s}</span>;
 };
