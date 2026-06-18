@@ -741,7 +741,6 @@ export default function App() {
         'masteruser':  { pw: 'Test@2026', user: { username: 'masteruser',  name: 'masteruser',            role: 'merchant', walletBalance: 964.35 } },
         'Test@isu':    { pw: 'Test@2026', user: { username: 'Test@isu',    name: 'Test@isu',              role: 'merchant', walletBalance: 12450.75 } },
         'Test@Ad':     { pw: 'Test@2027', user: { username: 'Test@Ad',     name: 'Krishna Das',           role: 'admin', walletBalance: 245800 } },
-        'partneruser': { pw: 'Test@2028', user: { username: 'partneruser', name: 'Arjun Mehta (Partner)', role: 'partner', walletBalance: 0 } },
       };
       const match = fallbacks[username];
       if (match && match.pw === password) {
@@ -817,23 +816,6 @@ export default function App() {
           chargebacks={chargebacks} 
           users={users}
           ledger={ledger}
-          setView={setView} 
-          toggleTheme={toggleTheme} 
-          darkMode={darkMode}
-          formatINR={formatINR}
-          formatDateDisp={formatDateDisp}
-          showToast={showToast}
-          refreshAllData={refreshAllData}
-          resetAllSessions={resetAllSessions}
-          handleLogout={handleLogout}
-        />
-      )}
-
-      {view === 'partner' && currentUser && (
-        <PartnerPortal 
-          currentUser={currentUser} 
-          users={users}
-          chargebacks={chargebacks}
           setView={setView} 
           toggleTheme={toggleTheme} 
           darkMode={darkMode}
@@ -1027,6 +1009,297 @@ function MerchantPortal({
   const [partialAmount, setPartialAmount] = useState('');
   const [partialRemarks, setPartialRemarks] = useState('');
   const [partialEvidenceFile, setPartialEvidenceFile] = useState(null);
+
+  // VROL Automation rules states
+  const [oiRules, setOiRules] = useState([]);
+  const [newOiCategory, setNewOiCategory] = useState('ALL_MATCHES');
+  const [newOiThreshold, setNewOiThreshold] = useState('');
+  const [newOiAction, setNewOiAction] = useState('AUTO_INTENT_TO_CREDIT');
+
+  const [rdrRules, setRdrRules] = useState([]);
+  const [newRdrProgramId, setNewRdrProgramId] = useState('VISA_RDR_CORE');
+  const [newRdrMaxLimit, setNewRdrMaxLimit] = useState('');
+  const [newRdrExcludedSkus, setNewRdrExcludedSkus] = useState('');
+
+  // Allocation compelling evidence compilation states
+  const [allocationCoreFile, setAllocationCoreFile] = useState('');
+  const [allocationCoreDesc, setAllocationCoreDesc] = useState('');
+  const [allocationSupplFile, setAllocationSupplFile] = useState('');
+  const [allocationSupplDesc, setAllocationSupplDesc] = useState('');
+  const [allocationHistFile, setAllocationHistFile] = useState('');
+  const [allocationHistDesc, setAllocationHistDesc] = useState('');
+  const [validationResult, setValidationResult] = useState(null);
+
+  const fetchOiRules = async () => {
+    try {
+      const res = await fetch(`${API_URL}/vrol/oi/rules?merchant=${currentUser.username}`, {
+        headers: { 'x-user-name': currentUser.username }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setOiRules(data || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch OI rules:', err);
+    }
+  };
+
+  const fetchRdrRules = async () => {
+    try {
+      const res = await fetch(`${API_URL}/vrol/rdr/rules?merchant=${currentUser.username}`, {
+        headers: { 'x-user-name': currentUser.username }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRdrRules(data || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch RDR rules:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (activePage === 'm-vrol-automation') {
+      fetchOiRules();
+      fetchRdrRules();
+    }
+  }, [activePage]);
+
+  useEffect(() => {
+    if (targetDisputeId) {
+      const cb = chargebacks.find(c => c.id === targetDisputeId);
+      if (cb) {
+        setValidationResult(null);
+        if (cb.id === 'CASE-2026-F01') {
+          setAllocationCoreFile('pin_log_terminal.pdf');
+          setAllocationCoreDesc('POS terminal chip read signature');
+          setAllocationSupplFile('device_id_finger.json');
+          setAllocationSupplDesc('Device metadata and hardware profile');
+          setAllocationHistFile('past_clearing.csv');
+          setAllocationHistDesc('Previous undisputed history');
+        } else if (cb.id === 'CASE-2026-F04') {
+          setAllocationCoreFile('ip_match_proof.pdf');
+          setAllocationCoreDesc('Matching IP and geofence logs');
+          setAllocationSupplFile('shipping_carrier_rec.pdf');
+          setAllocationSupplDesc('Signed delivery proof at billing');
+          setAllocationHistFile('customer_profile.pdf');
+          setAllocationHistDesc('Verified account history logs');
+        } else if (cb.id === 'CASE-2026-A11') {
+          setAllocationCoreFile('auth_token_valid.pdf');
+          setAllocationCoreDesc('Real-time auth code logs via VIP');
+          setAllocationSupplFile('settle_reconcile.json');
+          setAllocationSupplDesc('Settled ledger match record');
+          setAllocationHistFile('terminal_receipt.pdf');
+          setAllocationHistDesc('Physical swipe customer voucher');
+        } else if (cb.id === 'CASE-2026-A13') {
+          setAllocationCoreFile('ext_auth_window.pdf');
+          setAllocationCoreDesc('Delayed execution compliance log');
+          setAllocationSupplFile('booking_contract.pdf');
+          setAllocationSupplDesc('Pre-authorization agreement terms');
+          setAllocationHistFile('merchant_memo.txt');
+          setAllocationHistDesc('Partial completion data log');
+        } else {
+          setAllocationCoreFile('');
+          setAllocationCoreDesc('');
+          setAllocationSupplFile('');
+          setAllocationSupplDesc('');
+          setAllocationHistFile('');
+          setAllocationHistDesc('');
+        }
+      }
+    }
+  }, [targetDisputeId, chargebacks]);
+
+  const handleAddOiRule = async (e) => {
+    e.preventDefault();
+    if (!newOiThreshold) {
+      showToast('Threshold amount is required', 'error');
+      return;
+    }
+    const updated = [...oiRules, {
+      maxThresholdAmount: parseFloat(newOiThreshold),
+      visaCategory: newOiCategory,
+      ruleAction: newOiAction
+    }];
+    try {
+      const res = await fetch(`${API_URL}/vrol/oi/rules`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-name': currentUser.username
+        },
+        body: JSON.stringify({ merchant: currentUser.username, rules: updated })
+      });
+      if (res.ok) {
+        setOiRules(updated);
+        setNewOiThreshold('');
+        showToast('Order Insight deflection rule added successfully', 'success');
+      } else {
+        showToast('Failed to save rule', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Error saving rule', 'error');
+    }
+  };
+
+  const handleDeleteOiRule = async (index) => {
+    const updated = oiRules.filter((_, i) => i !== index);
+    try {
+      const res = await fetch(`${API_URL}/vrol/oi/rules`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-name': currentUser.username
+        },
+        body: JSON.stringify({ merchant: currentUser.username, rules: updated })
+      });
+      if (res.ok) {
+        setOiRules(updated);
+        showToast('Rule deleted successfully', 'success');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Error deleting rule', 'error');
+    }
+  };
+
+  const handleAddRdrRule = async (e) => {
+    e.preventDefault();
+    if (!newRdrMaxLimit) {
+      showToast('Max limit is required', 'error');
+      return;
+    }
+    const updated = [...rdrRules, {
+      programId: newRdrProgramId,
+      rdrMaxLimit: parseFloat(newRdrMaxLimit),
+      excludedSkus: newRdrExcludedSkus
+    }];
+    try {
+      const res = await fetch(`${API_URL}/vrol/rdr/rules`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-name': currentUser.username
+        },
+        body: JSON.stringify({ merchant: currentUser.username, rules: updated })
+      });
+      if (res.ok) {
+        setRdrRules(updated);
+        setNewRdrMaxLimit('');
+        setNewRdrExcludedSkus('');
+        showToast('RDR rule added successfully', 'success');
+      } else {
+        showToast('Failed to save rule', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Error saving rule', 'error');
+    }
+  };
+
+  const handleDeleteRdrRule = async (index) => {
+    const updated = rdrRules.filter((_, i) => i !== index);
+    try {
+      const res = await fetch(`${API_URL}/vrol/rdr/rules`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-name': currentUser.username
+        },
+        body: JSON.stringify({ merchant: currentUser.username, rules: updated })
+      });
+      if (res.ok) {
+        setRdrRules(updated);
+        showToast('RDR rule deleted successfully', 'success');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Error deleting rule', 'error');
+    }
+  };
+
+  const handleValidateEvidence = () => {
+    const allowed = ['.pdf', '.json', '.csv', '.png', '.jpg'];
+    const validateFile = (fileName) => {
+      if (!fileName) return 'Missing file name.';
+      const ext = fileName.substring(fileName.lastIndexOf('.')).toLowerCase();
+      if (!allowed.includes(ext)) {
+        return `Format ${ext} not allowed. Supported: PDF, JSON, CSV, PNG, JPG.`;
+      }
+      return null;
+    };
+    const err1 = validateFile(allocationCoreFile);
+    const err2 = validateFile(allocationSupplFile);
+    const err3 = validateFile(allocationHistFile);
+    if (err1 || err2 || err3) {
+      const msg = `Validation Error: ${err1 || ''} ${err2 || ''} ${err3 || ''}`.trim();
+      setValidationResult({ success: false, msg });
+      showToast('Compelling evidence formatting check failed', 'error');
+    } else {
+      setValidationResult({ success: true, msg: 'ChargebackHelp validation script passed: file format and sizes conform to Visa requirements.' });
+      showToast('Validation script executed successfully', 'success');
+    }
+  };
+
+  const handleSubmitRepresentment = async () => {
+    if (!validationResult || !validationResult.success) {
+      showToast('Please run and pass the validation script before submitting representment.', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_URL}/vrol/dispute/${targetDisputeId}/representment`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-name': currentUser.username
+        },
+        body: JSON.stringify({
+          evidenceFile1: allocationCoreFile,
+          evidenceDescription1: allocationCoreDesc,
+          evidenceFile2: allocationSupplFile,
+          evidenceDescription2: allocationSupplDesc,
+          evidenceFile3: allocationHistFile,
+          evidenceDescription3: allocationHistDesc
+        })
+      });
+      if (res.ok) {
+        showToast('Representment submitted successfully to VROL RTSI', 'success');
+        setTargetDisputeId(null);
+        await refreshAllData();
+      } else {
+        const errData = await res.json();
+        showToast(errData.error || 'Failed to submit representment', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Network error during representment', 'error');
+    }
+  };
+
+  const handleCollaborationAction = async (finalAction) => {
+    try {
+      const res = await fetch(`${API_URL}/vrol/dispute/${targetDisputeId}/collaboration-action`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-name': currentUser.username
+        },
+        body: JSON.stringify({ finalAction })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        showToast(data.message || 'Collaboration action submitted successfully', 'success');
+        setTargetDisputeId(null);
+        await refreshAllData();
+      } else {
+        showToast('Failed to submit collaboration action', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Network error during collaboration action', 'error');
+    }
+  };
 
   // Filters State
   const TODAY_STR = new Date().toISOString().split('T')[0];
@@ -2200,6 +2473,15 @@ function MerchantPortal({
                   onClick={() => setShowFaq(!showFaq)}
                 >
                   <span className="si">❓</span> FAQ & Help
+                </div>
+                <div 
+                  className={`sb-item ${activePage === 'm-vrol-automation' ? 'active' : ''}`} 
+                  onClick={() => {
+                    setActivePage('m-vrol-automation');
+                    setShowFaq(false);
+                  }}
+                >
+                  <span className="si">⚙️</span> VROL Automation
                 </div>
               </>
             )}
@@ -3895,11 +4177,8 @@ function MerchantPortal({
                                     Dispute Amount: {formatINR ? formatINR(cb.txnAmt) : '₹' + cb.txnAmt}
                                   </span>
                                   {!isClosed && cb.respondByDate && (
-                                    <span style={{ fontSize: '17px', fontWeight: '800', color: '#ef4444' }}>
-                                      SLA: {(() => {
-                                        const diff = getDaysDifference(cb.respondByDate, TODAY_STR);
-                                        return diff > 0 ? `${diff} days pending` : diff === 0 ? 'Due today' : 'Expired';
-                                      })()}
+                                    <span style={{ fontSize: '14px', fontWeight: '800', color: '#ef4444', background: '#fee2e2', padding: '4px 10px', borderRadius: '6px', border: '1px solid #fca5a5' }}>
+                                      T-Minus {getDaysDifference(cb.respondByDate, TODAY_STR)} Days
                                     </span>
                                   )}
                                 </div>
@@ -3911,8 +4190,142 @@ function MerchantPortal({
                               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', alignItems: 'stretch' }}>
                                 {/* Left Column: Upload Evidence, Actions, Uploaded Documents, and Timeline */}
                                 <div style={{ flex: '1 1 calc(50% - 10px)', minWidth: '300px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                  {/* Upload Evidence / Action card */}
-                                  {!isClosed && !cb.mStatus.includes('Lost') && !cb.mStatus.includes('Won') && (
+                                  {/* Locked State Notification */}
+                                  {cb.isLocked && (
+                                    <div style={{ background: '#f1f5f9', border: '1.5px solid #cbd5e1', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)', color: '#64748b', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                      <span style={{ fontSize: '20px' }}>🔒</span>
+                                      <div>
+                                        <div style={{ fontWeight: '700', color: '#334155', fontSize: '13px' }}>Transaction Locked</div>
+                                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>This dispute is locked to prevent duplicate chargebacks or manual refunds while in final routing states.</div>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Collaboration Workflow Panel */}
+                                  {cb.isCollaboration && cb.mSubStatus === 'Pre-Arbitration - Review Required' && !cb.isLocked && (
+                                    <div style={{ background: 'linear-gradient(135deg, #fef3c7 0%, #fffbeb 100%)', border: '1.5px solid #f59e0b', borderRadius: '12px', padding: '20px', boxShadow: '0 4px 6px rgba(0,0,0,0.03)', marginBottom: '16px' }}>
+                                      <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#b45309', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span>⚠️</span> Pre-Arbitration - Review Required
+                                      </h3>
+                                      <div style={{ fontSize: '12px', color: '#78350f', marginBottom: '14px', lineHeight: '1.5' }}>
+                                        <strong>Urgent Countdown:</strong> T-Minus 5 Days remaining before default liability loss. <br />
+                                        <strong>Recommended Action:</strong> Review cardholder letter or Accept Financial Liability.
+                                      </div>
+                                      
+                                      {cb.preArbCounterReason && (
+                                        <div style={{ background: '#fff', border: '1px solid #fcd34d', borderRadius: '8px', padding: '12px', fontSize: '12px', color: '#374151', marginBottom: '16px', fontStyle: 'italic' }}>
+                                          <strong>Cardholder Counter-Reason:</strong> "{cb.preArbCounterReason}"
+                                        </div>
+                                      )}
+
+                                      <div style={{ display: 'flex', gap: '12px' }}>
+                                        <button 
+                                          onClick={() => handleCollaborationAction('ACCEPT_LIABILITY')}
+                                          style={{ flex: 1, padding: '10px 14px', borderRadius: '8px', background: '#d97706', color: '#fff', border: 'none', fontWeight: '700', cursor: 'pointer', fontSize: '12px' }}
+                                        >
+                                          Accept Liability
+                                        </button>
+                                        <button 
+                                          onClick={() => handleCollaborationAction('ESCALATE_TO_DRM')}
+                                          style={{ flex: 1, padding: '10px 14px', borderRadius: '8px', background: '#6B38FB', color: '#fff', border: 'none', fontWeight: '700', cursor: 'pointer', fontSize: '12px' }}
+                                        >
+                                          Escalate to DRM
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Allocation Compelling Evidence Workspace */}
+                                  {(cb.adjType === 'Formal Dispute Inflow' || cb.mSubStatus === 'Action Required - Awaiting Merchant Input') && !cb.isLocked && !cb.mSubStatus.includes('Submitted') && (
+                                    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                                      <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span>📋</span> Compile Compelling Evidence (Allocation track)
+                                      </h3>
+                                      <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '16px', lineHeight: '1.4' }}>
+                                        Upload and specify your files to satisfy Visa's compelling data requirements. Run the formatting validation script before submission.
+                                      </p>
+
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
+                                        <div>
+                                          <label style={{ fontSize: '11px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Core Verification File</label>
+                                          <input 
+                                            type="text" 
+                                            placeholder="e.g. pin_log_terminal.pdf" 
+                                            value={allocationCoreFile} 
+                                            onChange={(e) => setAllocationCoreFile(e.target.value)} 
+                                            style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '4px', outline: 'none', marginBottom: '4px' }} 
+                                          />
+                                          <input 
+                                            type="text" 
+                                            placeholder="Description, e.g. POS terminal chip read signature" 
+                                            value={allocationCoreDesc} 
+                                            onChange={(e) => setAllocationCoreDesc(e.target.value)} 
+                                            style={{ width: '100%', padding: '6px 10px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none', color: '#64748b' }} 
+                                          />
+                                        </div>
+
+                                        <div>
+                                          <label style={{ fontSize: '11px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Supplementary Proof Log</label>
+                                          <input 
+                                            type="text" 
+                                            placeholder="e.g. device_id_finger.json" 
+                                            value={allocationSupplFile} 
+                                            onChange={(e) => setAllocationSupplFile(e.target.value)} 
+                                            style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '4px', outline: 'none', marginBottom: '4px' }} 
+                                          />
+                                          <input 
+                                            type="text" 
+                                            placeholder="Description, e.g. Device metadata" 
+                                            value={allocationSupplDesc} 
+                                            onChange={(e) => setAllocationSupplDesc(e.target.value)} 
+                                            style={{ width: '100%', padding: '6px 10px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none', color: '#64748b' }} 
+                                          />
+                                        </div>
+
+                                        <div>
+                                          <label style={{ fontSize: '11px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Historical Validation Data</label>
+                                          <input 
+                                            type="text" 
+                                            placeholder="e.g. past_clearing.csv" 
+                                            value={allocationHistFile} 
+                                            onChange={(e) => setAllocationHistFile(e.target.value)} 
+                                            style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '4px', outline: 'none', marginBottom: '4px' }} 
+                                          />
+                                          <input 
+                                            type="text" 
+                                            placeholder="Description, e.g. Previous undisputed history" 
+                                            value={allocationHistDesc} 
+                                            onChange={(e) => setAllocationHistDesc(e.target.value)} 
+                                            style={{ width: '100%', padding: '6px 10px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none', color: '#64748b' }} 
+                                          />
+                                        </div>
+                                      </div>
+
+                                      {validationResult && (
+                                        <div style={{ padding: '10px 12px', borderRadius: '6px', fontSize: '11px', marginBottom: '14px', border: '1px solid', borderColor: validationResult.success ? '#bbf7d0' : '#fecaca', background: validationResult.success ? '#f0fdf4' : '#fdf2f2', color: validationResult.success ? '#15803d' : '#b91c1c' }}>
+                                          {validationResult.msg}
+                                        </div>
+                                      )}
+
+                                      <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button 
+                                          onClick={handleValidateEvidence}
+                                          style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontWeight: '600' }}
+                                        >
+                                          ⚙️ Run Validation Script
+                                        </button>
+                                        <button 
+                                          onClick={handleSubmitRepresentment}
+                                          style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', background: '#6B38FB', color: '#fff', border: 'none', fontWeight: 'bold' }}
+                                        >
+                                          📤 Submit Representment
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Standard Upload Evidence / Action card */}
+                                  {!isClosed && !cb.mStatus.includes('Lost') && !cb.mStatus.includes('Won') && !cb.isLocked && !cb.isCollaboration && cb.adjType !== 'Formal Dispute Inflow' && cb.mSubStatus !== 'Action Required - Awaiting Merchant Input' && !cb.mSubStatus.includes('Submitted') && (
                                     <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
                                       <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <span>📤</span> Upload Evidence &amp; Actions
@@ -4250,6 +4663,187 @@ function MerchantPortal({
               </div>
             );
           })()}
+
+          {/* VROL Automation Page */}
+          {activePage === 'm-vrol-automation' && (
+            <div className="page active" id="m-vrol-automation" style={{ padding: '24px', fontFamily: "'Inter', sans-serif" }}>
+              <div style={{ marginBottom: '24px' }}>
+                <h2 style={{ fontSize: '24px', fontWeight: '700', color: '#1e293b', margin: '0 0 6px 0' }}>VROL RTSI Automation</h2>
+                <p style={{ fontSize: '14px', color: '#64748b', margin: 0 }}>Configure automated deflection thresholds for Order Insight (OI) and auto-accept constraints for Rapid Dispute Resolution (RDR).</p>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))', gap: '24px' }}>
+                {/* Order Insight Card */}
+                <div style={{ background: 'var(--card, #fff)', border: '1px solid var(--border-color, #e2e8f0)', borderRadius: '12px', padding: '24px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
+                    <span style={{ fontSize: '24px' }}>💡</span>
+                    <div>
+                      <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#1e293b', margin: 0 }}>Order Insight (OI) Deflection Rules</h3>
+                      <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Pre-dispute auto-responses to match inquiry thresholds.</p>
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleAddOiRule} style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <label style={{ fontSize: '12px', fontWeight: '600', color: '#475569' }}>Dispute Category</label>
+                        <select 
+                          value={newOiCategory} 
+                          onChange={(e) => setNewOiCategory(e.target.value)}
+                          style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', outline: 'none' }}
+                        >
+                          <option value="ALL_MATCHES">All Categories</option>
+                          <option value="Fraud">Fraud</option>
+                          <option value="Consumer Dispute">Consumer Dispute</option>
+                          <option value="Processing Error">Processing Error</option>
+                          <option value="Authorization">Authorization</option>
+                        </select>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <label style={{ fontSize: '12px', fontWeight: '600', color: '#475569' }}>Max Deflection Amount ($)</label>
+                        <input 
+                          type="number" 
+                          step="0.01" 
+                          placeholder="e.g. 50.00" 
+                          value={newOiThreshold} 
+                          onChange={(e) => setNewOiThreshold(e.target.value)}
+                          style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', outline: 'none' }}
+                        />
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: '600', color: '#475569' }}>Rule Action</label>
+                      <select 
+                        value={newOiAction} 
+                        onChange={(e) => setNewOiAction(e.target.value)}
+                        style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', outline: 'none', background: '#f8fafc', color: '#64748b' }}
+                        disabled
+                      >
+                        <option value="AUTO_INTENT_TO_CREDIT">AUTO_INTENT_TO_CREDIT (Automate deflection & reverse funds)</option>
+                      </select>
+                    </div>
+                    <button type="submit" className="btn btn-primary" style={{ padding: '10px 16px', borderRadius: '6px', fontWeight: '600', fontSize: '13px', background: '#6B38FB', color: '#fff', border: 'none', cursor: 'pointer', alignSelf: 'flex-end' }}>
+                      + Add Deflection Rule
+                    </button>
+                  </form>
+
+                  <h4 style={{ fontSize: '13px', fontWeight: '700', color: '#475569', marginBottom: '10px' }}>Active Rules</h4>
+                  {oiRules.length === 0 ? (
+                    <div style={{ padding: '16px', textScale: 'center', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '8px', color: '#64748b', fontSize: '13px', textAlign: 'center' }}>
+                      No active deflection rules configured.
+                    </div>
+                  ) : (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                        <thead>
+                          <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
+                            <th style={{ padding: '10px' }}>Category</th>
+                            <th style={{ padding: '10px' }}>Max Deflection Limit</th>
+                            <th style={{ padding: '10px' }}>Action</th>
+                            <th style={{ padding: '10px', textAlign: 'center' }}>Remove</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {oiRules.map((rule, idx) => (
+                            <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '10px', fontWeight: '600', color: '#334155' }}>{rule.visaCategory}</td>
+                              <td style={{ padding: '10px', color: '#475569' }}>${parseFloat(rule.maxThresholdAmount).toFixed(2)}</td>
+                              <td style={{ padding: '10px' }}><span className="badge badge-progress" style={{ background: '#e0f2fe', color: '#0369a1', fontSize: '10px' }}>{rule.ruleAction}</span></td>
+                              <td style={{ padding: '10px', textAlign: 'center' }}>
+                                <button type="button" onClick={() => handleDeleteOiRule(idx)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '14px' }}>&times;</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Rapid Dispute Resolution Card */}
+                <div style={{ background: 'var(--card, #fff)', border: '1px solid var(--border-color, #e2e8f0)', borderRadius: '12px', padding: '24px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
+                    <span style={{ fontSize: '24px' }}>⚡</span>
+                    <div>
+                      <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#1e293b', margin: 0 }}>Rapid Dispute Resolution (RDR) Rules</h3>
+                      <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Automated rules for RDR program auto-resolution.</p>
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleAddRdrRule} style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <label style={{ fontSize: '12px', fontWeight: '600', color: '#475569' }}>Program Identifier</label>
+                        <select 
+                          value={newRdrProgramId} 
+                          onChange={(e) => setNewRdrProgramId(e.target.value)}
+                          style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', outline: 'none' }}
+                        >
+                          <option value="VISA_RDR_CORE">VISA_RDR_CORE</option>
+                        </select>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <label style={{ fontSize: '12px', fontWeight: '600', color: '#475569' }}>Max Auto-Accept Limit ($)</label>
+                        <input 
+                          type="number" 
+                          step="0.01" 
+                          placeholder="e.g. 50.00" 
+                          value={newRdrMaxLimit} 
+                          onChange={(e) => setNewRdrMaxLimit(e.target.value)}
+                          style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', outline: 'none' }}
+                        />
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: '600', color: '#475569' }}>Excluded SKUs (Comma separated)</label>
+                      <input 
+                        type="text" 
+                        placeholder="e.g. HIGH_RISK_ELECTRONICS, SKU_PREMIUM" 
+                        value={newRdrExcludedSkus} 
+                        onChange={(e) => setNewRdrExcludedSkus(e.target.value)}
+                        style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', outline: 'none' }}
+                      />
+                    </div>
+                    <button type="submit" className="btn btn-primary" style={{ padding: '10px 16px', borderRadius: '6px', fontWeight: '600', fontSize: '13px', background: '#6B38FB', color: '#fff', border: 'none', cursor: 'pointer', alignSelf: 'flex-end' }}>
+                      + Add RDR Rule
+                    </button>
+                  </form>
+
+                  <h4 style={{ fontSize: '13px', fontWeight: '700', color: '#475569', marginBottom: '10px' }}>Active Rules</h4>
+                  {rdrRules.length === 0 ? (
+                    <div style={{ padding: '16px', textScale: 'center', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '8px', color: '#64748b', fontSize: '13px', textAlign: 'center' }}>
+                      No active RDR rules configured.
+                    </div>
+                  ) : (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                        <thead>
+                          <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
+                            <th style={{ padding: '10px' }}>Program</th>
+                            <th style={{ padding: '10px' }}>Max Auto-Accept</th>
+                            <th style={{ padding: '10px' }}>Excluded SKUs</th>
+                            <th style={{ padding: '10px', textAlign: 'center' }}>Remove</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rdrRules.map((rule, idx) => (
+                            <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '10px', fontWeight: '600', color: '#334155' }}>{rule.programId}</td>
+                              <td style={{ padding: '10px', color: '#475569' }}>${parseFloat(rule.rdrMaxLimit).toFixed(2)}</td>
+                              <td style={{ padding: '10px', color: '#475569' }}>{rule.excludedSkus || 'None'}</td>
+                              <td style={{ padding: '10px', textAlign: 'center' }}>
+                                <button type="button" onClick={() => handleDeleteRdrRule(idx)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '14px' }}>&times;</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
         </main>
       </div>
@@ -4965,6 +5559,205 @@ function AdminPortal({
   const [filterStatus, setFilterStatus] = useState('');
   const [filterSubStatus, setFilterSubStatus] = useState('');
   const [filterScheme, setFilterScheme] = useState('');
+
+  // RTSI Webhook simulator and audits states
+  const [rtsiAudits, setRtsiAudits] = useState([]);
+  const [simulatorScenario, setSimulatorScenario] = useState('scenario1');
+  const [selectedAudit, setSelectedAudit] = useState(null);
+  const [webhookResponse, setWebhookResponse] = useState(null);
+  const [isSendingWebhook, setIsSendingWebhook] = useState(false);
+  
+  // Scenario payload states
+  // Scenario 1 & 2 (OI inquiry)
+  const [oiVisaTxId, setOiVisaTxId] = useState('987654321012345');
+  const [oiMerchantCaid, setOiMerchantCaid] = useState('MERCH_ACQ_9981');
+  const [oiArn, setOiArn] = useState('74123456789012345678901');
+  const [oiTxTimestamp, setOiTxTimestamp] = useState('2026-06-15T14:32:00Z');
+  const [oiAmount, setOiAmount] = useState('149.99');
+  const [oiCurrencyIso, setOiCurrencyIso] = useState('840');
+  const [oiCategory, setOiCategory] = useState('Fraud');
+
+  // Scenario 3 (RDR alert)
+  const [rdrVrolCaseId, setRdrVrolCaseId] = useState('RDR-771120A');
+  const [rdrDisputeCondition, setRdrDisputeCondition] = useState('10.1: EMV Fraud Counterfeit');
+  const [rdrDisputeAmount, setRdrDisputeAmount] = useState('22.50');
+  const [rdrCurrency, setRdrCurrency] = useState('USD');
+  const [rdrProductSku, setRdrProductSku] = useState('DIGITAL_COIN_X1');
+  const [rdrMerchantCaid, setRdrMerchantCaid] = useState('CAID_MERCH_001');
+
+  // Scenario 4 (Dispute Ingestion)
+  const [dispVrolCaseId, setDispVrolCaseId] = useState('VROL-DISP-2026-99481');
+  const [dispMerchantCaid, setDispMerchantCaid] = useState('CAID_SUB_VURAM_4412');
+  const [dispMerchantName, setDispMerchantName] = useState('ACME Digital Services Corp');
+  const [dispCategory, setDispCategory] = useState('Consumer Dispute');
+  const [dispCondition, setDispCondition] = useState('13.3: Not as Described or Defective');
+  const [dispAmount, setDispAmount] = useState('350.00');
+  const [dispCurrencyCode, setDispCurrencyCode] = useState('840');
+  const [dispNetworkDayLimit, setDispNetworkDayLimit] = useState('30 Days');
+  const [dispSubmissionDate, setDispSubmissionDate] = useState('2026-06-18');
+
+  // Scenario 6 (Collaboration Ingestion)
+  const [collabVrolCaseId, setCollabVrolCaseId] = useState('VROL-COLLAB-88431');
+  const [collabMerchantCaid, setCollabMerchantCaid] = useState('CAID_SUB_COLLAB_55');
+  const [collabCategory, setCollabCategory] = useState('Consumer Dispute');
+  const [collabCondition, setCollabCondition] = useState('13.1: Merchandise Not Received');
+  const [collabAmount, setCollabAmount] = useState('500.00');
+  const [collabInitialEvidence, setCollabInitialEvidence] = useState('basic_tracking_id.pdf');
+  const [collabCounterReason, setCollabCounterReason] = useState('Cardholder claims package stolen');
+
+  const fetchRtsiAudits = async () => {
+    try {
+      const res = await fetch(`${API_URL}/vrol/rtsi-audits`);
+      if (res.ok) {
+        const data = await res.json();
+        setRtsiAudits(data || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch RTSI audits:', err);
+    }
+  };
+
+  const clearRtsiAudits = async () => {
+    if (confirm('Clear all RTSI audit logs?')) {
+      try {
+        const res = await fetch(`${API_URL}/vrol/rtsi-audits/clear`, { method: 'POST' });
+        if (res.ok) {
+          setRtsiAudits([]);
+          showToast('RTSI Audit logs cleared successfully');
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (activePage === 'a-rtsi-simulator') {
+      fetchRtsiAudits();
+      const interval = setInterval(fetchRtsiAudits, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [activePage]);
+
+  const handleScenarioChange = (scenario) => {
+    setSimulatorScenario(scenario);
+    setWebhookResponse(null);
+    if (scenario === 'scenario1') {
+      setOiVisaTxId('987654321012345');
+      setOiMerchantCaid('MERCH_ACQ_9981');
+      setOiArn('74123456789012345678901');
+      setOiTxTimestamp('2026-06-15T14:32:00Z');
+      setOiAmount('149.99');
+      setOiCurrencyIso('840');
+      setOiCategory('Fraud');
+    } else if (scenario === 'scenario2') {
+      setOiVisaTxId('987654321012349');
+      setOiMerchantCaid('CAID_SUB_8812');
+      setOiArn('74123456789012345678905');
+      setOiTxTimestamp('2026-06-17T02:11:00Z');
+      setOiAmount('14.50');
+      setOiCurrencyIso('USD');
+      setOiCategory('Fraud');
+    } else if (scenario === 'scenario3') {
+      setRdrVrolCaseId('RDR-771120A');
+      setRdrDisputeCondition('10.1: EMV Fraud Counterfeit');
+      setRdrDisputeAmount('22.50');
+      setRdrCurrency('USD');
+      setRdrProductSku('DIGITAL_COIN_X1');
+      setRdrMerchantCaid('CAID_MERCH_001');
+    } else if (scenario === 'scenario4') {
+      setDispVrolCaseId('VROL-DISP-2026-99481');
+      setDispMerchantCaid('CAID_SUB_VURAM_4412');
+      setDispMerchantName('ACME Digital Services Corp');
+      setDispCategory('Consumer Dispute');
+      setDispCondition('13.3: Not as Described or Defective');
+      setDispAmount('350.00');
+      setDispCurrencyCode('840');
+      setDispNetworkDayLimit('30 Days');
+      setDispSubmissionDate('2026-06-18');
+    } else if (scenario === 'scenario6') {
+      setCollabVrolCaseId('VROL-COLLAB-88431');
+      setCollabMerchantCaid('CAID_SUB_COLLAB_55');
+      setCollabCategory('Consumer Dispute');
+      setCollabCondition('13.1: Merchandise Not Received');
+      setCollabAmount('500.00');
+      setCollabInitialEvidence('basic_tracking_id.pdf');
+      setCollabCounterReason('Cardholder claims package stolen');
+    }
+  };
+
+  const handleTriggerWebhook = async () => {
+    setIsSendingWebhook(true);
+    setWebhookResponse(null);
+    let url = '';
+    let payload = {};
+
+    if (simulatorScenario === 'scenario1' || simulatorScenario === 'scenario2') {
+      url = `${API_URL}/vrol/oi/inquiry`;
+      payload = {
+        visaTxId: oiVisaTxId,
+        merchantCaid: oiMerchantCaid,
+        arn: oiArn,
+        txTimestamp: oiTxTimestamp,
+        amount: oiAmount,
+        currencyIso: oiCurrencyIso,
+        disputeCategoryCode: oiCategory
+      };
+    } else if (simulatorScenario === 'scenario3') {
+      url = `${API_URL}/vrol/rdr/alert`;
+      payload = {
+        vrolCaseId: rdrVrolCaseId,
+        disputeCondition: rdrDisputeCondition,
+        disputeAmount: rdrDisputeAmount,
+        currency: rdrCurrency,
+        productSku: rdrProductSku,
+        merchantCaid: rdrMerchantCaid
+      };
+    } else if (simulatorScenario === 'scenario4') {
+      url = `${API_URL}/vrol/dispute/ingest`;
+      payload = {
+        vrolCaseId: dispVrolCaseId,
+        merchantCaid: dispMerchantCaid,
+        merchantName: dispMerchantName,
+        disputeCategory: dispCategory,
+        disputeCondition: dispCondition,
+        disputeAmount: dispAmount,
+        currencyCode: dispCurrencyCode,
+        networkDayLimit: dispNetworkDayLimit,
+        networkSubmissionDate: dispSubmissionDate
+      };
+    } else if (simulatorScenario === 'scenario6') {
+      url = `${API_URL}/vrol/collaboration/ingest`;
+      payload = {
+        vrolCaseId: collabVrolCaseId,
+        merchantCaid: collabMerchantCaid,
+        disputeCategory: collabCategory,
+        disputeCondition: collabCondition,
+        disputeAmount: collabAmount,
+        initialEvidence: collabInitialEvidence,
+        preArbCounterReason: collabCounterReason
+      };
+    }
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      setWebhookResponse({ status: res.status, data });
+      showToast('RTSI Webhook Triggered successfully', 'success');
+      fetchRtsiAudits();
+      await refreshAllData();
+    } catch (err) {
+      console.error(err);
+      setWebhookResponse({ status: 'Error', data: err.message });
+      showToast('Failed to trigger RTSI Webhook', 'error');
+    } finally {
+      setIsSendingWebhook(false);
+    }
+  };
 
   // Elastic search state (Admin)
   const [elasticSearchVal, setElasticSearchVal] = useState('');
@@ -5991,6 +6784,12 @@ function AdminPortal({
             >
               <span className="si">📤</span> VROL Import Center
             </div>
+            <div 
+              className={`sb-item ${activePage === 'a-rtsi-simulator' ? 'active' : ''}`}
+              onClick={() => setActivePage('a-rtsi-simulator')}
+            >
+              <span className="si">🔌</span> RTSI Webhook Simulator
+            </div>
           </div>
         </nav>
 
@@ -6253,6 +7052,290 @@ function AdminPortal({
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Admin RTSI Webhook Simulator & Audits */}
+          {activePage === 'a-rtsi-simulator' && (
+            <div className="page active" id="a-rtsi-simulator" style={{ padding: '24px', fontFamily: "'Inter', sans-serif" }}>
+              <div style={{ marginBottom: '24px' }}>
+                <h2 style={{ fontSize: '24px', fontWeight: '700', color: '#1e293b', margin: '0 0 6px 0' }}>RTSI Webhook Simulator & Audits</h2>
+                <p style={{ fontSize: '14px', color: '#64748b', margin: 0 }}>Simulate real-time inbound Visa network transactions, RDR alerts, and formal disputes, and inspect RTSI network transaction logs.</p>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', alignItems: 'stretch' }}>
+                
+                {/* Simulator Form Column */}
+                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', display: 'flex', flexDirection: 'column' }}>
+                  <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#1e293b', marginBottom: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>🔌</span> Inbound Webhook Event Simulator
+                  </h3>
+
+                  <div style={{ marginBottom: '20px' }}>
+                    <label style={{ fontSize: '13px', fontWeight: '600', color: '#475569', display: 'block', marginBottom: '8px' }}>Select BDD Scenario Flow</label>
+                    <select 
+                      value={simulatorScenario} 
+                      onChange={(e) => handleScenarioChange(e.target.value)}
+                      style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', outline: 'none' }}
+                    >
+                      <option value="scenario1">Scenario 1: OI Inquiry - Digital Receipt Deflection</option>
+                      <option value="scenario2">Scenario 2: OI Inquiry - Intent to Credit deflection</option>
+                      <option value="scenario3">Scenario 3: RDR Alert Ingestion - Auto-Accept & Credit</option>
+                      <option value="scenario4">Scenario 4: Formal Dispute Ingestion - Routing & SLA</option>
+                      <option value="scenario6">Scenario 6: Collaboration Ingestion - Pre-Arb Review</option>
+                    </select>
+                  </div>
+
+                  {/* Dynamic Fields */}
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '20px', background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <h4 style={{ fontSize: '12px', fontWeight: '700', color: '#475569', margin: '0 0 6px 0', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Scenario Parameters</h4>
+
+                    {(simulatorScenario === 'scenario1' || simulatorScenario === 'scenario2') && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Visa Tx ID</label>
+                          <input type="text" value={oiVisaTxId} onChange={(e) => setOiVisaTxId(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Merchant CAID</label>
+                          <input type="text" value={oiMerchantCaid} onChange={(e) => setOiMerchantCaid(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>ARN</label>
+                          <input type="text" value={oiArn} onChange={(e) => setOiArn(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Timestamp</label>
+                          <input type="text" value={oiTxTimestamp} onChange={(e) => setOiTxTimestamp(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Amount</label>
+                          <input type="text" value={oiAmount} onChange={(e) => setOiAmount(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Currency Code</label>
+                          <input type="text" value={oiCurrencyIso} onChange={(e) => setOiCurrencyIso(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div style={{ gridColumn: 'span 2' }}>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Category</label>
+                          <input type="text" value={oiCategory} onChange={(e) => setOiCategory(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {simulatorScenario === 'scenario3' && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>VROL Case ID</label>
+                          <input type="text" value={rdrVrolCaseId} onChange={(e) => setRdrVrolCaseId(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Merchant CAID</label>
+                          <input type="text" value={rdrMerchantCaid} onChange={(e) => setRdrMerchantCaid(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Dispute Condition</label>
+                          <input type="text" value={rdrDisputeCondition} onChange={(e) => setRdrDisputeCondition(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Amount</label>
+                          <input type="text" value={rdrDisputeAmount} onChange={(e) => setRdrDisputeAmount(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Currency</label>
+                          <input type="text" value={rdrCurrency} onChange={(e) => setRdrCurrency(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Product SKU</label>
+                          <input type="text" value={rdrProductSku} onChange={(e) => setRdrProductSku(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {simulatorScenario === 'scenario4' && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>VROL Case ID</label>
+                          <input type="text" value={dispVrolCaseId} onChange={(e) => setDispVrolCaseId(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Merchant CAID</label>
+                          <input type="text" value={dispMerchantCaid} onChange={(e) => setDispMerchantCaid(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Merchant Name</label>
+                          <input type="text" value={dispMerchantName} onChange={(e) => setDispMerchantName(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Dispute Category</label>
+                          <input type="text" value={dispCategory} onChange={(e) => setDispCategory(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Dispute Condition</label>
+                          <input type="text" value={dispCondition} onChange={(e) => setDispCondition(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Dispute Amount</label>
+                          <input type="text" value={dispAmount} onChange={(e) => setDispAmount(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Currency Code</label>
+                          <input type="text" value={dispCurrencyCode} onChange={(e) => setDispCurrencyCode(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Network Day Limit</label>
+                          <input type="text" value={dispNetworkDayLimit} onChange={(e) => setDispNetworkDayLimit(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div style={{ gridColumn: 'span 2' }}>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Submission Date</label>
+                          <input type="text" value={dispSubmissionDate} onChange={(e) => setDispSubmissionDate(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {simulatorScenario === 'scenario6' && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>VROL Case ID</label>
+                          <input type="text" value={collabVrolCaseId} onChange={(e) => setCollabVrolCaseId(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Merchant CAID</label>
+                          <input type="text" value={collabMerchantCaid} onChange={(e) => setCollabMerchantCaid(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Dispute Category</label>
+                          <input type="text" value={collabCategory} onChange={(e) => setCollabCategory(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Condition Code</label>
+                          <input type="text" value={collabCondition} onChange={(e) => setCollabCondition(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Amount</label>
+                          <input type="text" value={collabAmount} onChange={(e) => setCollabAmount(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Initial Evidence File</label>
+                          <input type="text" value={collabInitialEvidence} onChange={(e) => setCollabInitialEvidence(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                        <div style={{ gridColumn: 'span 2' }}>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>Pre-Arb Counter Reason</label>
+                          <input type="text" value={collabCounterReason} onChange={(e) => setCollabCounterReason(e.target.value)} style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px' }} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <button 
+                    type="button"
+                    onClick={handleTriggerWebhook}
+                    disabled={isSendingWebhook}
+                    style={{ padding: '12px 24px', background: '#6B38FB', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                  >
+                    {isSendingWebhook ? '🔄 Sending...' : '⚡ Trigger Inbound Webhook'}
+                  </button>
+
+                  {webhookResponse && (
+                    <div style={{ marginTop: '20px', background: '#0f172a', color: '#38bdf8', padding: '16px', borderRadius: '8px', fontFamily: 'monospace', fontSize: '11px', overflowX: 'auto', border: '1px solid #334155' }}>
+                      <div style={{ color: '#94a3b8', borderBottom: '1px solid #334155', paddingBottom: '6px', marginBottom: '8px', fontWeight: 'bold' }}>
+                        Response Status: {webhookResponse.status}
+                      </div>
+                      <pre style={{ margin: 0 }}>{JSON.stringify(webhookResponse.data, null, 2)}</pre>
+                    </div>
+                  )}
+                </div>
+
+                {/* Audit Logs Column */}
+                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>📄</span> RTSI Webhook Audits Log
+                    </h3>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button type="button" onClick={fetchRtsiAudits} className="btn btn-outline" style={{ padding: '6px 12px', fontSize: '11px', height: '30px' }}>Refresh</button>
+                      <button type="button" onClick={clearRtsiAudits} className="btn btn-outline" style={{ padding: '6px 12px', fontSize: '11px', height: '30px', color: '#ef4444', borderColor: '#fca5a5' }}>Clear</button>
+                    </div>
+                  </div>
+
+                  {rtsiAudits.length === 0 ? (
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '8px', color: '#64748b', fontSize: '13px', textAlign: 'center' }}>
+                      No webhook audit logs found. Trigger a simulator event above.
+                    </div>
+                  ) : (
+                    <div style={{ flex: 1, overflowY: 'auto', maxHeight: '500px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {rtsiAudits.map((audit) => (
+                          <div 
+                            key={audit.id} 
+                            onClick={() => setSelectedAudit(audit)}
+                            style={{ padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#f8fafc', cursor: 'pointer', transition: 'all 0.2s' }}
+                            onMouseEnter={(e) => e.currentTarget.style.borderColor = '#6B38FB'}
+                            onMouseLeave={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                              <span style={{ fontWeight: '700', fontSize: '12px', color: '#334155' }}>
+                                <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: '4px', marginRight: '6px' }}>{audit.method}</span>
+                                {audit.endpoint}
+                              </span>
+                              <span style={{ fontSize: '11px', color: audit.status === 200 ? '#16a34a' : '#dc2626', fontWeight: 'bold' }}>
+                                Code {audit.status}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '4px' }}>
+                              {new Date(audit.time).toLocaleTimeString()}
+                            </div>
+                            <div style={{ fontSize: '11px', color: '#475569', fontStyle: 'italic' }}>
+                              {audit.comments}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+              </div>
+
+              {/* View Audit Details Modal */}
+              {selectedAudit && (
+                <div className="overlay open" style={{ zIndex: 2000 }}>
+                  <div className="modal modal-lg" style={{ maxWidth: '750px' }}>
+                    <div className="modal-hdr">
+                      <h3>RTSI Audit Log Details</h3>
+                      <button className="modal-close" onClick={() => setSelectedAudit(null)}>✕</button>
+                    </div>
+                    <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '12px', marginBottom: '16px' }}>
+                        <div><strong>Timestamp:</strong> {new Date(selectedAudit.time).toLocaleString()}</div>
+                        <div><strong>Audit ID:</strong> {selectedAudit.id}</div>
+                        <div><strong>Endpoint:</strong> {selectedAudit.method} {selectedAudit.endpoint}</div>
+                        <div><strong>Status:</strong> <span style={{ color: selectedAudit.status === 200 ? '#16a34a' : '#dc2626', fontWeight: 'bold' }}>{selectedAudit.status}</span></div>
+                        <div style={{ gridColumn: 'span 2' }}><strong>Comments:</strong> {selectedAudit.comments}</div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                        <div>
+                          <h4 style={{ fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '6px' }}>Request Payload</h4>
+                          <pre style={{ margin: 0, padding: '12px', background: '#0f172a', color: '#38bdf8', borderRadius: '8px', fontSize: '10px', overflowX: 'auto', maxHeight: '300px' }}>
+                            {JSON.stringify(selectedAudit.requestPayload, null, 2)}
+                          </pre>
+                        </div>
+                        <div>
+                          <h4 style={{ fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '6px' }}>Response Payload</h4>
+                          <pre style={{ margin: 0, padding: '12px', background: '#0f172a', color: '#38bdf8', borderRadius: '8px', fontSize: '10px', overflowX: 'auto', maxHeight: '300px' }}>
+                            {JSON.stringify(selectedAudit.responsePayload, null, 2)}
+                          </pre>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="modal-footer">
+                      <button className="btn btn-secondary" onClick={() => setSelectedAudit(null)}>Close</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
             </div>
           )}
 
@@ -7057,7 +8140,7 @@ function AdminPortal({
                                         Arb Decision
                                       </button>
                                     )}
-                                    {(cb.mSubStatus.includes('Won') || cb.mSubStatus.includes('Accepted')) && cb.mSubStatus !== 'Refund Success' && cb.mSubStatus !== 'Refund On Hold' && (
+                                    {(cb.mSubStatus.includes('Won') || cb.mSubStatus.includes('Accepted')) && cb.mSubStatus !== 'Refund Success' && cb.mSubStatus !== 'Refund On Hold' && !cb.isLocked && (
                                       <button type="button" className="btn btn-sm btn-success" style={{ padding: '6px 12px', borderRadius: '6px', height: '36px', fontSize: '12px' }} onClick={() => { setActiveModal('refund'); }}>
                                         Refund
                                       </button>
@@ -7327,7 +8410,7 @@ function AdminPortal({
                             Arb Decision
                           </button>
                         )}
-                        {(cb.mSubStatus.includes('Won') || cb.mSubStatus.includes('Accepted')) && cb.mSubStatus !== 'Refund Success' && cb.mSubStatus !== 'Refund On Hold' && (
+                        {(cb.mSubStatus.includes('Won') || cb.mSubStatus.includes('Accepted')) && cb.mSubStatus !== 'Refund Success' && cb.mSubStatus !== 'Refund On Hold' && !cb.isLocked && (
                           <button type="button" className="btn btn-sm btn-success" onClick={() => { setActiveModal('refund'); }}>
                             Refund
                           </button>
