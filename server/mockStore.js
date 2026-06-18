@@ -1,4 +1,4 @@
-const { buildDefaultUsers, buildSeedLedger, PARTNER_ID } = require('./seed/demoData');
+const { buildDefaultUsers, buildSeedLedger } = require('./seed/demoData');
 
 let users = [];
 let chargebacks = [];
@@ -15,7 +15,7 @@ function resetDemo() {
     save: async function save() { return this; }
   }));
 
-  chargebacks = attachPartnerId(buildSeedData(TODAY)).map((cb) => ({
+  chargebacks = buildSeedData(TODAY).map((cb) => ({
     ...cb,
     _id: cb.id,
     toObject: () => ({ ...cb }),
@@ -32,10 +32,6 @@ function resetDemo() {
   }));
 
   return { users: users.length, chargebacks: chargebacks.length, ledger: ledger.length };
-}
-
-function attachPartnerId(rows) {
-  return rows.map((cb) => ({ ...cb, partnerId: PARTNER_ID }));
 }
 
 function getUsers() {
@@ -58,7 +54,6 @@ function updateUserWallet(username, newBalance) {
 function getChargebacks(query = {}) {
   let list = [...chargebacks];
   if (query.userName) list = list.filter((c) => c.userName === query.userName);
-  if (query.partnerId) list = list.filter((c) => c.partnerId === query.partnerId);
   if (query.id) list = list.filter((c) => c.id === query.id);
   return list.map((c) => {
     const { save, toObject, ...rest } = c;
@@ -100,11 +95,55 @@ function countLedger() {
   return ledger.length;
 }
 
+// deflectionRules & rdrRules state
+let deflectionRules = [
+  { merchant: 'masteruser', maxThresholdAmount: 25.00, visaCategory: 'Fraud', ruleAction: 'AUTO_INTENT_TO_CREDIT' },
+  { merchant: 'masteruser', maxThresholdAmount: 50.00, visaCategory: 'Consumer Dispute', ruleAction: 'AUTO_INTENT_TO_CREDIT' },
+  { merchant: 'Test@isu', maxThresholdAmount: 35.00, visaCategory: 'Processing Error', ruleAction: 'AUTO_INTENT_TO_CREDIT' },
+  { merchant: 'Test@isu', maxThresholdAmount: 15.00, visaCategory: 'Authorization', ruleAction: 'AUTO_INTENT_TO_CREDIT' },
+  { merchant: 'masteruser', maxThresholdAmount: 100.00, visaCategory: 'Fraud', ruleAction: 'AUTO_INTENT_TO_CREDIT' }
+];
+
+let rdrRules = [
+  { merchant: 'masteruser', programId: 'VISA_RDR_CORE', rdrMaxLimit: 50.00, excludedSkus: 'HIGH_RISK_ELECTRONICS' },
+  { merchant: 'masteruser', programId: 'VISA_RDR_CORE', rdrMaxLimit: 75.00, excludedSkus: 'HIGH_RISK_ELECTRONICS' },
+  { merchant: 'Test@isu', programId: 'VISA_RDR_CORE', rdrMaxLimit: 30.00, excludedSkus: 'HIGH_RISK_ELECTRONICS' },
+  { merchant: 'Test@isu', programId: 'VISA_RDR_CORE', rdrMaxLimit: 120.00, excludedSkus: 'HIGH_RISK_ELECTRONICS' }
+];
+
+const mapCaidToMerchant = (caid) => {
+  if (!caid) return 'masteruser';
+  const c = caid.toUpperCase();
+  if (c.includes('COLLAB_55') || c.includes('COLLAB_12') || c.includes('MERCH_101') || c.includes('MERCH_102') || c.includes('MERCH_001') || c.includes('MERCH_002') || c.includes('8812') || c.includes('4432') || c.includes('9941') || c.includes('9981') || c.includes('4452') || c.includes('8890') || c.includes('2211') || c.includes('4412')) {
+    return 'masteruser';
+  }
+  return 'Test@isu';
+};
+
+function getDeflectionRules(merchant) {
+  if (!merchant) return deflectionRules;
+  return deflectionRules.filter(r => r.merchant === merchant);
+}
+
+function saveDeflectionRules(merchant, rules) {
+  deflectionRules = deflectionRules.filter(r => r.merchant !== merchant);
+  rules.forEach(r => deflectionRules.push({ ...r, merchant }));
+}
+
+function getRdrRules(merchant) {
+  if (!merchant) return rdrRules;
+  return rdrRules.filter(r => r.merchant === merchant);
+}
+
+function saveRdrRules(merchant, rules) {
+  rdrRules = rdrRules.filter(r => r.merchant !== merchant);
+  rules.forEach(r => rdrRules.push({ ...r, merchant }));
+}
+
 // Preload demo data for cold starts (refreshed again when MOCK_MODE is confirmed)
 resetDemo();
 
 module.exports = {
-  PARTNER_ID,
   resetDemo,
   getUsers,
   findUser,
@@ -114,5 +153,10 @@ module.exports = {
   addChargeback,
   getLedger,
   addLedgerEntry,
-  countLedger
+  countLedger,
+  mapCaidToMerchant,
+  getDeflectionRules,
+  saveDeflectionRules,
+  getRdrRules,
+  saveRdrRules
 };

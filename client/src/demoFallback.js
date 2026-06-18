@@ -1,5 +1,5 @@
 /** Offline fallback when API is unreachable — keeps portals usable for demos */
-const PARTNER_ID = 'partneruser';
+const PARTNER_ID = null;
 
 const TODAY = new Date();
 const fmtDate = (d) => d.toISOString().split('T')[0];
@@ -10,8 +10,7 @@ export const CLIENT_DEMO = {
   users: [
     { username: 'masteruser', password: 'Test@2026', role: 'merchant', name: 'masteruser', walletBalance: 964.35 },
     { username: 'Test@isu', password: 'Test@2026', role: 'merchant', name: 'Test@isu', walletBalance: 12450.75 },
-    { username: 'Test@Ad', password: 'Test@2027', role: 'admin', name: 'Krishna Das', walletBalance: 245800 },
-    { username: 'partneruser', password: 'Test@2028', role: 'partner', name: 'Arjun Mehta (Partner)', walletBalance: 0, partnerId: PARTNER_ID }
+    { username: 'Test@Ad', password: 'Test@2027', role: 'admin', name: 'Krishna Das', walletBalance: 245800 }
   ],
   chargebacks: [
     { id: 'CB_PEND_3', caseId: 'CASE000993', userName: 'masteruser', rrn: '1234567812', txnId: '500003', txnDate: dA(10), createdDate: dA(2), respondByDate: dA(0), mStatus: 'Chargeback Raise', mSubStatus: 'Chargeback In Progress', txnAmt: 1500, adjAmt: 1500, product: 'VISA', merchantAction: 'evidence', acquirerAction: null, visaPending: false, partnerId: PARTNER_ID, timeline: [], documents: [{ id: 'doc_pend3_1', filename: 'Evidence_1.pdf', uploadedAt: '2026-06-01T10:00:00Z', status: 'Pending Review' }, { id: 'doc_pend3_2', filename: 'Evidence_2.pdf', uploadedAt: '2026-06-01T10:00:00Z', status: 'Pending Review' }, { id: 'doc_pend3_3', filename: 'Evidence_3.pdf', uploadedAt: '2026-06-01T10:00:00Z', status: 'Pending Review' }] },

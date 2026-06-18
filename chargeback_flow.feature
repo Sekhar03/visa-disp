@@ -1,11 +1,11 @@
-Feature: Visa Chargeback Dispute Management Workflow for Merchant, Admin, and Partner Portals
-  As a portal user (Merchant, Admin, or Partner)
+Feature: Visa Chargeback Dispute Management Workflow for Merchant and Admin Portals
+  As a portal user (Merchant or Admin)
   I want to access my respective portal features, view dashboards, filter datasets, manage dispute lifecycles, and perform actions
   So that chargebacks are systematically handled and audited between all portals.
 
   Background:
     Given the Chargeback system is running
-    And the following portals are available: Merchant Portal, Admin Portal, and Partner Portal
+    And the following portals are available: Merchant Portal and Admin Portal
 
   # ═════════════════════════════════════════════════════════════════════════
   # LOGIN & AUTHENTICATION
@@ -23,7 +23,6 @@ Feature: Visa Chargeback Dispute Management Workflow for Merchant, Admin, and Pa
       | masteruser  | Test@2026 | merchant | Merchant Portal |
       | Test@isu    | Test@2026 | merchant | Merchant Portal |
       | Test@Ad     | Test@2027 | admin    | Admin Portal    |
-      | partneruser | Test@2028 | partner  | Partner Portal  |
 
   Scenario Outline: Invalid login attempts
     Given the Chargeback system is running
@@ -273,40 +272,6 @@ Feature: Visa Chargeback Dispute Management Workflow for Merchant, Admin, and Pa
     Then the fixed floating FAQ card should open in the bottom-right corner
 
   # ═════════════════════════════════════════════════════════════════════════
-  # PARTNER PORTAL
-  # ═════════════════════════════════════════════════════════════════════════
-
-  # --- Dashboard Aggregation ---
-  Scenario: Partner views analytics for affiliated merchants
-    Given I am logged into the Partner Portal
-    When I view the "Portfolio Analytics" page
-    Then I should see five stats cards:
-      | Card | Total Disputes |
-      | Card | Evidence Submitted |
-      | Card | Won Disputes |
-      | Card | Visa Escalations |
-      | Card | SLA Expiring Today |
-    And I should see a table displaying Recent Dispute Activity
-
-  # --- Merchant Details ---
-  Scenario: Partner views and searches merchant profiles
-    Given I am logged into the Partner Portal
-    When I click the "Merchant Details" sidebar link
-    Then I should see a list of my affiliated merchants displaying their Name, MID, and Status
-    And I can use the search bar to filter merchants by MID or name
-    When I click "View" on a merchant row
-    Then a profile modal opens displaying Merchant Name, MID, TID, Status, Role, Onboarding Date, and Business Information (Business Type, Contact Email, Contact Phone, Address)
-
-  # --- FAQ Floating Help ---
-  Scenario: Partner accesses floating FAQ help widget
-    Given I am logged into the Partner Portal
-    When I click "FAQ & Help" in the sidebar or the "?" button
-    Then the floating FAQ widget opens in the bottom-right corner
-    And the background analytics dashboard remains visible and interactive
-    When I click "Portfolio Analytics"
-    Then the floating FAQ widget closes
-
-  # ═════════════════════════════════════════════════════════════════════════
   # END-TO-END DISPUTE ACTION LIFE CYCLE FLOW
   # ═════════════════════════════════════════════════════════════════════════
 
@@ -333,16 +298,9 @@ Feature: Visa Chargeback Dispute Management Workflow for Merchant, Admin, and Pa
     Then the dispute status transitions to "<FinalStatus>" under the Admin "Closed" queue
     And a timeline entry "<FinalStatus>" is appended to the audit log
 
-    # 4. Partner Action Flow: Audit the case outcome
-    When I log into the Partner Portal as "<PartnerUser>" with password "<PartnerPass>"
-    And I navigate to the "Portfolio Analytics" dashboard
-    Then the "Won Disputes" and "Lost Disputes" aggregate stats are updated accordingly
-    And I can search for case "<CaseID>" in the Recent Dispute Activity table
-    And I should see the complete "Timeline" containing all action entries: Dispute Raised, Merchant Evidence, Submitted to Visa, and Final Settlement
-
     Examples:
-      | CaseID | MerchantUser | MerchantPass | AdminUser | AdminPass | VisaResult      | FinalStatus     | PartnerUser | PartnerPass |
-      | CB001  | masteruser   | Test@2026    | Test@Ad   | Test@2027 | Pre-Arb Won     | Chargeback Won  | partneruser | Test@2028   |
-      | CB002  | Test@isu     | Test@2026    | Test@Ad   | Test@2027 | Pre-Arb Lost    | Chargeback Lost | partneruser | Test@2028   |
-      | CB005  | masteruser   | Test@2026    | Test@Ad   | Test@2027 | Arbitration Won | Chargeback Won  | partneruser | Test@2028   |
-      | CB024  | Test@isu     | Test@2026    | Test@Ad   | Test@2027 | Arbitration Lost| Chargeback Lost | partneruser | Test@2028   |
+      | CaseID | MerchantUser | MerchantPass | AdminUser | AdminPass | VisaResult      | FinalStatus     |
+      | CB001  | masteruser   | Test@2026    | Test@Ad   | Test@2027 | Pre-Arb Won     | Chargeback Won  |
+      | CB002  | Test@isu     | Test@2026    | Test@Ad   | Test@2027 | Pre-Arb Lost    | Chargeback Lost |
+      | CB005  | masteruser   | Test@2026    | Test@Ad   | Test@2027 | Arbitration Won | Chargeback Won  |
+      | CB024  | Test@isu     | Test@2026    | Test@Ad   | Test@2027 | Arbitration Lost| Chargeback Lost |

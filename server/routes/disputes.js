@@ -8,7 +8,6 @@ router.get('/', async (req, res) => {
     const { from, to, rrn, status, subStatus, search } = req.query;
     const userRole = req.headers['x-user-role'];
     const userName = req.headers['x-user-name'];
-    const partnerId = req.headers['x-partner-id'];
 
     let query = {};
 
@@ -16,9 +15,6 @@ router.get('/', async (req, res) => {
     if (userRole === 'merchant') {
       if (!userName) return res.status(400).json({ message: 'Missing x-user-name header for merchant' });
       query.userName = userName;
-    } else if (userRole === 'partner') {
-      if (!partnerId) return res.status(400).json({ message: 'Missing x-partner-id header for partner' });
-      query.partnerId = partnerId;
     }
     // Admin sees all, no query restriction needed
 
@@ -152,9 +148,7 @@ router.post('/:id/action', async (req, res) => {
 
     // Determine uploader role string
     let uploaderRole = 'Merchant';
-    if (role === 'partner') {
-      uploaderRole = 'Partner (On Behalf of Merchant)';
-    } else if (role === 'admin') {
+    if (role === 'admin') {
       uploaderRole = 'Admin';
     }
 

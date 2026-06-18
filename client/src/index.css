@@ -441,17 +441,6 @@ body.dark-mode .ev-remarks-box { background: rgba(0,0,0,0.4); border-color: var(
   letter-spacing: 0.8px;
   text-transform: uppercase;
 }
-.partner-badge {
-  background: rgba(124, 58, 237, 0.08);
-  color: #7c3aed;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 3px 8px;
-  border-radius: 10px;
-  margin-left: 8px;
-  border: 1px solid rgba(124, 58, 237, 0.2);
-  letter-spacing: 0.5px;
-}
 
 /* ── MAIN ───────────────────────────────────────────── */
 .main {

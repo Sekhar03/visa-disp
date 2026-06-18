@@ -2,13 +2,10 @@ const User = require('../models/User');
 const Chargeback = require('../models/Chargeback');
 const Ledger = require('../models/Ledger');
 
-const PARTNER_ID = 'partneruser';
-
 const buildDefaultUsers = () => [
   { username: 'Test@isu', password: 'Test@2026', role: 'merchant', name: 'Test@isu', walletBalance: 12450.75 },
   { username: 'masteruser', password: 'Test@2026', role: 'merchant', name: 'masteruser', walletBalance: 964.35 },
-  { username: 'Test@Ad', password: 'Test@2027', role: 'admin', name: 'Krishna Das', walletBalance: 245800.00 },
-  { username: 'partneruser', password: 'Test@2028', role: 'partner', name: 'Arjun Mehta (Partner)', walletBalance: 0.00, partnerId: PARTNER_ID }
+  { username: 'Test@Ad', password: 'Test@2027', role: 'admin', name: 'Krishna Das', walletBalance: 245800.00 }
 ];
 
 const buildSeedLedger = (TODAY) => {
@@ -33,9 +30,6 @@ const buildSeedLedger = (TODAY) => {
   ];
 };
 
-const attachPartnerId = (chargebacks) =>
-  chargebacks.map((cb) => ({ ...cb, partnerId: PARTNER_ID }));
-
 async function seedAllDemoData() {
   if (global.MOCK_MODE) {
     return require('../mockStore').resetDemo();
@@ -52,7 +46,7 @@ async function seedAllDemoData() {
     await User.insertMany(users);
 
     const { buildSeedData } = require('../routes/auth');
-    const chargebacks = attachPartnerId(buildSeedData(TODAY));
+    const chargebacks = buildSeedData(TODAY);
     await Chargeback.insertMany(chargebacks);
 
     const ledger = buildSeedLedger(TODAY);
@@ -71,7 +65,6 @@ async function seedAllDemoData() {
 }
 
 module.exports = {
-  PARTNER_ID,
   buildDefaultUsers,
   buildSeedLedger,
   seedAllDemoData
