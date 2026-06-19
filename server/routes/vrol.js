@@ -766,6 +766,17 @@ router.get('/rdr/rules', (req, res) => {
 router.post('/rdr/rules', (req, res) => {
   const user = req.headers['x-user-name'] || req.body.merchant;
   const rules = req.body.rules || [];
+  
+  // Construct all rules to validate global/merchant capacity limits
+  const candidateRules = mockStore.getRdrRules()
+    .filter(r => r.merchant !== user)
+    .concat(rules.map(r => ({ ...r, merchant: user })));
+    
+  const val = mockStore.validateRdrRules(candidateRules);
+  if (!val.valid) {
+    return res.status(400).json({ error: val.message });
+  }
+
   mockStore.saveRdrRules(user, rules);
   res.json({ status: 'SUCCESS', rules: mockStore.getRdrRules(user) });
 });

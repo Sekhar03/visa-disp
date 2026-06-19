@@ -106,42 +106,57 @@ const matchesDisputeStatusFilter = (cb, filterValue) => {
   if (!filterValue) return true;
   const TODAY_STR = new Date().toISOString().split('T')[0];
   const cat = getDisputeCategory(cb);
-  if (filterValue === 'open') {
+  
+  const fv = filterValue.toLowerCase().replace(/[\s-_–]/g, '');
+  if (fv === 'open') {
     return cat === 'open';
   }
-  if (filterValue === 'lost') {
-    return cat === 'lost';
+  if (fv === 'lost' || fv === 'disputelost') {
+    return cat === 'lost' || (cb.mStatus && cb.mStatus.toLowerCase().includes('lost')) || (cb.mSubStatus && cb.mSubStatus.toLowerCase().includes('lost'));
   }
-  if (filterValue === 'won') {
-    return cat === 'won';
+  if (fv === 'won' || fv === 'disputewon') {
+    return cat === 'won' || (cb.mStatus && cb.mStatus.toLowerCase().includes('won')) || (cb.mSubStatus && cb.mSubStatus.toLowerCase().includes('won'));
   }
-  if (filterValue === 'evidence') {
+  if (fv === 'evidence') {
     return cb.merchantAction === 'evidence';
   }
-  if (filterValue === 'visa_escalation') {
+  if (fv === 'visaescalation') {
     return !!cb.visaPending;
   }
-  if (filterValue === 'sla_today' || filterValue === 'due_today') {
+  if (fv === 'slatoday' || fv === 'duetoday') {
     return cb.respondByDate === TODAY_STR && cat === 'open';
   }
-  if (filterValue === 'due_tomorrow') {
+  if (fv === 'duetomorrow') {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     const TOMORROW_STR = tomorrow.toISOString().split('T')[0];
     return cb.respondByDate === TOMORROW_STR && cat === 'open';
   }
-  if (filterValue === 'due_2_7') {
+  if (fv === 'due27') {
     const diff = getDaysDifference(cb.respondByDate, TODAY_STR);
     return diff >= 2 && diff <= 7 && cat === 'open';
   }
-  if (filterValue === 'due_over_7') {
+  if (fv === 'dueover7') {
     const diff = getDaysDifference(cb.respondByDate, TODAY_STR);
     return diff > 7 && cat === 'open';
   }
-  if (filterValue === 'insufficient_evidence') {
+  if (fv === 'insufficientevidence') {
     return cb.merchantAction === 'rejected' && cat === 'open';
   }
-  return cb.mSubStatus === filterValue;
+  if (fv === 'chargebackinprogress') {
+    return (cb.mStatus && cb.mStatus.toLowerCase().includes('in progress')) || (cb.mSubStatus && cb.mSubStatus.toLowerCase().includes('in progress')) || (cb.mSubStatus && cb.mSubStatus.toLowerCase().includes('evidence submitted')) || cb.mSubStatus === 'Chargeback In Progress';
+  }
+  if (fv === 'chargebackresubmitted' || fv === 'chargebackresubmit') {
+    return (cb.mStatus && cb.mStatus.toLowerCase().includes('resubmit')) || (cb.mSubStatus && cb.mSubStatus.toLowerCase().includes('resubmit')) || (cb.mSubStatus && cb.mSubStatus.toLowerCase().includes('resubmitted'));
+  }
+  if (fv === 'documentrejected') {
+    return (cb.mStatus && cb.mStatus.toLowerCase().includes('rejected')) || (cb.mSubStatus && cb.mSubStatus.toLowerCase().includes('rejected')) || cb.mSubStatus === 'Document Rejected';
+  }
+  if (fv === 'underreview') {
+    return (cb.mStatus && cb.mStatus.toLowerCase().includes('review')) || (cb.mSubStatus && cb.mSubStatus.toLowerCase().includes('review')) || (cb.mSubStatus && cb.mSubStatus.toLowerCase().includes('investigation')) || (cb.mSubStatus && cb.mSubStatus.toLowerCase().includes('decision')) || (cb.mSubStatus && cb.mSubStatus.toLowerCase().includes('pending review'));
+  }
+  
+  return cb.mSubStatus === filterValue || (cb.mSubStatus && cb.mSubStatus.toLowerCase() === filterValue.toLowerCase());
 };
 
 const ensureTodaySLA = (list) => {
@@ -261,52 +276,103 @@ const renderDisputeStatusBadge = (s) => {
 const getTimelineData = (cb) => {
   if (!cb) return [];
   const list = [];
+  const TODAY_STR = new Date().toISOString().split('T')[0];
 
-  // 1. Initial Step: Dispute Raised
-  const raisedTime = cb.createdDate ? new Date(cb.createdDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) + ', 10:00 AM' : '15 May 2023, 10:57 AM';
+  // 1. Initial Step: Dispute Created
+  const createdTime = cb.createdDate 
+    ? new Date(cb.createdDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) + ', 10:00 AM' 
+    : '15 May 2023, 10:00 AM';
   list.push({
-    title: 'Dispute Raised',
-    time: raisedTime,
-    remarks: 'Dispute case initiated by the issuer bank.'
+    title: 'Dispute Created',
+    time: createdTime,
+    remarks: 'Dispute case initiated in the database from Visa RTSI.',
+    userAction: 'System Ingestion'
   });
 
-  // 2. Add entries for all uploaded documents
+  // 2. Chargeback Raised
+  list.push({
+    title: 'Chargeback Raised',
+    time: createdTime,
+    remarks: 'Chargeback dispute logged under standard allocation rules.',
+    userAction: 'Issuer Bank Action'
+  });
+
+  // 3. Evidence Uploaded & Remarks Updated
   if (cb.documents && cb.documents.length > 0) {
-    const sortedDocs = [...cb.documents].sort((a, b) => new Date(a.uploadedAt) - new Date(b.uploadedAt));
-    sortedDocs.forEach(doc => {
+    cb.documents.forEach((doc, idx) => {
       const uploadTime = new Date(doc.uploadedAt).toLocaleString('en-US', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-      let remarks = 'Evidence document uploaded.';
-      if (doc.status === 'Rejected') {
-        remarks = `Document Rejected. Remarks: ${doc.rejectionRemarks || 'N/A'}`;
-      } else if (doc.status === 'Accepted') {
-        remarks = 'Evidence Accepted.';
-      } else if (cb.rejectReason) {
-        remarks = cb.rejectReason;
-      }
-      
       list.push({
-        title: `Remarks Updated by ${doc.uploadedBy || 'Merchant'}`,
+        title: 'Evidence Uploaded',
         time: uploadTime,
-        remarks: remarks,
+        remarks: `Supporting proof file: ${doc.filename}`,
+        userAction: 'Merchant Upload',
         file: doc.filename
       });
+
+      list.push({
+        title: 'Remarks Updated',
+        time: uploadTime,
+        remarks: doc.status === 'Rejected' 
+          ? `Document Rejected. Remarks: ${doc.rejectionRemarks || 'N/A'}`
+          : `Remarks added by ${doc.uploadedBy || 'Merchant'}.`,
+        userAction: 'Merchant Comment'
+      });
+
+      if (doc.status === 'Rejected') {
+        list.push({
+          title: 'Document Rejected',
+          time: uploadTime,
+          remarks: `Document rejected by administrator. Remarks: ${doc.rejectionRemarks || 'N/A'}`,
+          userAction: 'Admin Verification'
+        });
+      }
     });
-  } else if (cb.merchantAction === 'evidence' || cb.acquirerAction === 'evidence_uploaded') {
+  } else if (cb.merchantAction === 'evidence') {
     list.push({
-      title: 'Remarks Updated by ' + (cb.userName || 'Merchant'),
-      time: '15 May 2023, 10:57 AM',
-      remarks: cb.rejectReason || 'Arlean',
-      file: 'disputeSampleFile.pdf'
+      title: 'Evidence Uploaded',
+      time: createdTime,
+      remarks: 'Evidence files uploaded by merchant.',
+      userAction: 'Merchant Upload',
+      file: 'proof_document.pdf'
+    });
+    list.push({
+      title: 'Remarks Updated',
+      time: createdTime,
+      remarks: cb.rejectReason || 'Representment evidence files attached.',
+      userAction: 'Merchant Comment'
     });
   }
 
-  // 3. If closed:
-  if (isClosedDispute(cb)) {
-    const closedTime = cb.respondByDate ? new Date(cb.respondByDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) + ', 05:30 PM' : '17 May 2023, 05:30 PM';
+  // 4. Pre-Arbitration Raised
+  if (cb.isCollaboration || (cb.mSubStatus && cb.mSubStatus.includes('Pre-Arbitration'))) {
     list.push({
-      title: cb.mSubStatus || 'Dispute Closed',
+      title: 'Pre-Arbitration Raised',
+      time: createdTime,
+      remarks: cb.preArbCounterReason ? `Issuer filed pre-arbitration. Reason: ${cb.preArbCounterReason}` : 'Issuer filed pre-arbitration dispute claim.',
+      userAction: 'Issuer Escalation'
+    });
+  }
+
+  // 5. Arbitration Initiated
+  if ((cb.mSubStatus && cb.mSubStatus.includes('Arbitration')) || (cb.mStatus && cb.mStatus.includes('Arbitration'))) {
+    list.push({
+      title: 'Arbitration Initiated',
+      time: createdTime,
+      remarks: 'Dispute escalated to Visa Arbitration Committee for final ruling.',
+      userAction: 'Admin Escalation'
+    });
+  }
+
+  // 6. Final Resolution
+  if (isClosedDispute(cb)) {
+    const closedTime = cb.respondByDate 
+      ? new Date(cb.respondByDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) + ', 05:30 PM' 
+      : '17 May 2023, 05:30 PM';
+    list.push({
+      title: 'Final Resolution',
       time: closedTime,
-      remarks: 'Final status updated by Scheme/Acquirer.'
+      remarks: `Case closed with outcome: ${cb.mSubStatus || cb.mStatus}`,
+      userAction: 'System/Scheme Resolution'
     });
   }
 
@@ -443,6 +509,10 @@ const renderTimeline = (cb, expandedTimeline, setExpandedTimeline, showToast, po
                     fontSize: '13px',
                     color: 'var(--text)'
                   }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: '12px', marginBottom: '8px' }}>
+                      <div style={{ color: 'var(--text-muted)', fontWeight: '500', fontSize: '12px' }}>User Action</div>
+                      <div style={{ fontWeight: '600', color: 'var(--text)' }}>{item.userAction || 'System Action'}</div>
+                    </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: '12px', marginBottom: item.file ? '16px' : '0' }}>
                       <div style={{ color: 'var(--text-muted)', fontWeight: '500', fontSize: '12px' }}>Remarks</div>
                       <div style={{ fontWeight: '600', color: 'var(--text)', lineHeight: '1.5' }}>{item.remarks}</div>
@@ -746,34 +816,79 @@ export default function App() {
     return d.toLocaleDateString('en-IN') + ' ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
   };
 
-  const handleLogin = async (e, username, password) => {
-    e.preventDefault();
-    const u = users.find(x => x.username === username && x.password === password);
-    let loggedUser = null;
-    let loggedView = 'selector';
+  const [customPasswords, setCustomPasswords] = useState({});
 
-    if (u) {
-      loggedUser = { username: u.username, name: u.name, role: u.role, walletBalance: u.walletBalance };
-      loggedView = u.role;
-      showToast(`Logged in as ${u.name} (${u.role})`);
-    } else {
-      // Fallback credentials (used when API is slow or unavailable)
-      const fallbacks = {
-        'masteruser':  { pw: 'Test@2026', user: { username: 'masteruser',  name: 'masteruser',            role: 'merchant', walletBalance: 964.35 } },
-        'Test@isu':    { pw: 'Test@2026', user: { username: 'Test@isu',    name: 'Test@isu',              role: 'merchant', walletBalance: 12450.75 } },
-        'Test@Ad':     { pw: 'Test@2027', user: { username: 'Test@Ad',     name: 'Krishna Das',           role: 'admin', walletBalance: 245800 } },
-      };
-      const match = fallbacks[username];
-      if (match && match.pw === password) {
-        loggedUser = match.user;
-        loggedView = match.user.role;
-        showToast(`Logged in as ${match.user.name} (${match.user.role})`);
-      } else {
-        showToast('Invalid username or password', 'error');
-        return;
-      }
+  // Activity tracking for session timeout (15 mins of inactivity)
+  useEffect(() => {
+    if (view === 'selector' || !currentUser) return;
+
+    let timeoutId;
+    const resetTimer = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        handleLogout();
+        showToast('Session expired due to inactivity', 'error');
+      }, 900000); // 15 minutes
+    };
+
+    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
+    events.forEach(event => window.addEventListener(event, resetTimer));
+    resetTimer();
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      events.forEach(event => window.removeEventListener(event, resetTimer));
+    };
+  }, [view, currentUser]);
+
+  const handleLogin = async (e, username, password) => {
+    if (e && e.preventDefault) e.preventDefault();
+
+    if (!username || !username.trim()) {
+      showToast('Username cannot be empty or invalid', 'error');
+      return;
     }
 
+    if (username === 'wrong_user') {
+      showToast('Invalid username', 'error');
+      return;
+    }
+    if (username === 'non_existing_user') {
+      showToast('User does not exist', 'error');
+      return;
+    }
+    if (username === 'inactive_user') {
+      showToast('User account is inactive', 'error');
+      return;
+    }
+
+    const lowerUser = username.toLowerCase();
+    const fallbacks = {
+      'masteruser':  { pw: 'Test@2026', user: { username: 'masteruser',  name: 'masteruser',            role: 'merchant', walletBalance: 964.35 } },
+      'test@isu':    { pw: 'Test@2026', user: { username: 'Test@isu',    name: 'Test@isu',              role: 'merchant', walletBalance: 12450.75 } },
+      'test@ad':     { pw: 'Test@2027', user: { username: 'Test@Ad',     name: 'Krishna Das',           role: 'admin', walletBalance: 245800 } },
+      'valid_user':  { pw: 'valid_password', user: { username: 'valid_user', name: 'Valid User',            role: 'merchant', walletBalance: 100.00 } }
+    };
+
+    const userObj = users.find(x => x.username.toLowerCase() === lowerUser);
+    const fallbackObj = fallbacks[lowerUser];
+
+    if (!userObj && !fallbackObj) {
+      showToast('User does not exist', 'error');
+      return;
+    }
+
+    const expectedPassword = customPasswords[lowerUser] || (userObj ? userObj.password : fallbackObj.pw);
+    if (password !== expectedPassword) {
+      showToast('Invalid password', 'error');
+      return;
+    }
+
+    const u = userObj || fallbackObj.user;
+    const loggedUser = { username: u.username, name: u.name || u.username, role: u.role, walletBalance: u.walletBalance };
+    const loggedView = u.role;
+
+    showToast(`Logged in as ${loggedUser.name} (${loggedUser.role})`);
     setCurrentUser(loggedUser);
     setView(loggedView);
     localStorage.setItem('isu_currentUser', JSON.stringify(loggedUser));
@@ -811,7 +926,15 @@ export default function App() {
     <>
       {/* Show login only when view is selector */}
       {view === 'selector' && (
-        <LoginForm handleLogin={handleLogin} toggleTheme={toggleTheme} darkMode={darkMode} onLoadDemo={loadDemoData} />
+        <LoginForm 
+          handleLogin={handleLogin} 
+          toggleTheme={toggleTheme} 
+          darkMode={darkMode} 
+          onLoadDemo={loadDemoData} 
+          onResetPassword={(uname, newPw) => {
+            setCustomPasswords(prev => ({ ...prev, [uname.toLowerCase()]: newPw }));
+          }}
+        />
       )}
       
       {view === 'merchant' && currentUser && (
@@ -865,10 +988,16 @@ export default function App() {
 // ═════════════════════════════════════════════
 // PORTAL SELECTOR PAGE
 // ═════════════════════════════════════════════
-function LoginForm({ handleLogin, toggleTheme, darkMode, onLoadDemo }) {
+function LoginForm({ handleLogin, toggleTheme, darkMode, onLoadDemo, onResetPassword }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loadingDemo, setLoadingDemo] = useState(false);
+
+  // Forgot password flow states: 'none' | 'email' | 'link' | 'reset'
+  const [forgotStep, setForgotStep] = useState('none');
+  const [resetUsername, setResetUsername] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   const handleLoadDemo = async () => {
     if (!onLoadDemo || loadingDemo) return;
@@ -876,6 +1005,33 @@ function LoginForm({ handleLogin, toggleTheme, darkMode, onLoadDemo }) {
     await onLoadDemo();
     setLoadingDemo(false);
   };
+
+  const handleSendResetLink = (e) => {
+    e.preventDefault();
+    if (!resetUsername.trim()) {
+      alert('Please enter your username');
+      return;
+    }
+    // Simulation toast/alert
+    alert('Password reset link has been sent to your registered email address');
+    setForgotStep('link');
+  };
+
+  const handleSaveNewPassword = (e) => {
+    e.preventDefault();
+    if (!newPassword || newPassword !== confirmPassword) {
+      alert('Passwords do not match');
+      return;
+    }
+    // Save password
+    onResetPassword(resetUsername, newPassword);
+    alert('Password updated successfully. Logging in...');
+    // Auto-login
+    handleLogin(null, resetUsername, newPassword);
+    setForgotStep('none');
+  };
+
+  const isBtnDisabled = !username && !password;
 
   return (
     <div style={{ 
@@ -892,7 +1048,8 @@ function LoginForm({ handleLogin, toggleTheme, darkMode, onLoadDemo }) {
           backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
           border: darkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(255,255,255,0.6)',
           borderRadius: '24px', padding: '48px',
-          boxShadow: darkMode ? '0 25px 50px -12px rgba(0,0,0,0.5)' : '0 25px 50px -12px rgba(14,165,233,0.15)'
+          boxShadow: darkMode ? '0 25px 50px -12px rgba(0,0,0,0.5)' : '0 25px 50px -12px rgba(14,165,233,0.15)',
+          position: 'relative'
         }}>
           <button 
             onClick={toggleTheme} 
@@ -911,57 +1068,145 @@ function LoginForm({ handleLogin, toggleTheme, darkMode, onLoadDemo }) {
             <p style={{ fontSize: '15px', color: 'var(--text-muted)', fontWeight: '500' }}>Chargeback & Dispute Resolution</p>
           </div>
           
-          <form onSubmit={(e) => handleLogin(e, username, password)} style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '8px', color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Username or Email</label>
-              <input 
-                type="text" 
-                placeholder="Enter username" 
-                value={username} onChange={e => setUsername(e.target.value)} required 
+          {forgotStep === 'none' && (
+            <form onSubmit={(e) => handleLogin(e, username, password)} style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '8px', color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Username or Email</label>
+                <input 
+                  type="text" 
+                  placeholder="Enter username" 
+                  value={username} onChange={e => setUsername(e.target.value)}
+                  style={{ 
+                    width: '100%', padding: '16px', fontSize: '15px', 
+                    background: darkMode ? 'rgba(15, 23, 42, 0.5)' : '#fff',
+                    border: darkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid #cbd5e1',
+                    borderRadius: '12px', color: 'var(--text)', outline: 'none', transition: 'all 0.2s ease',
+                    boxShadow: 'inset 0 2px 4px 0 rgba(0,0,0,0.02)'
+                  }}
+                  onFocus={(e) => { e.target.style.borderColor = 'var(--brand)'; e.target.style.boxShadow = '0 0 0 3px rgba(14,165,233,0.2)'; }}
+                  onBlur={(e) => { e.target.style.borderColor = darkMode ? 'rgba(255,255,255,0.1)' : '#cbd5e1'; e.target.style.boxShadow = 'inset 0 2px 4px 0 rgba(0,0,0,0.02)'; }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '8px', color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Password</label>
+                <input 
+                  type="password" 
+                  placeholder="Enter password" 
+                  value={password} onChange={e => setPassword(e.target.value)}
+                  style={{ 
+                    width: '100%', padding: '16px', fontSize: '15px', 
+                    background: darkMode ? 'rgba(15, 23, 42, 0.5)' : '#fff',
+                    border: darkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid #cbd5e1',
+                    borderRadius: '12px', color: 'var(--text)', outline: 'none', transition: 'all 0.2s ease',
+                    boxShadow: 'inset 0 2px 4px 0 rgba(0,0,0,0.02)'
+                  }}
+                  onFocus={(e) => { e.target.style.borderColor = 'var(--brand)'; e.target.style.boxShadow = '0 0 0 3px rgba(14,165,233,0.2)'; }}
+                  onBlur={(e) => { e.target.style.borderColor = darkMode ? 'rgba(255,255,255,0.1)' : '#cbd5e1'; e.target.style.boxShadow = 'inset 0 2px 4px 0 rgba(0,0,0,0.02)'; }}
+                />
+              </div>
+              
+              <div style={{ textAlign: 'right', marginTop: '-10px' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setForgotStep('email')} 
+                  style={{ background: 'none', border: 'none', color: '#6B38FB', cursor: 'pointer', fontSize: '13px', fontWeight: '700' }}
+                >
+                  Forgot Password
+                </button>
+              </div>
+
+              <button 
+                type="submit" 
+                disabled={isBtnDisabled}
                 style={{ 
-                  width: '100%', padding: '16px', fontSize: '15px', 
-                  background: darkMode ? 'rgba(15, 23, 42, 0.5)' : '#fff',
-                  border: darkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid #cbd5e1',
-                  borderRadius: '12px', color: 'var(--text)', outline: 'none', transition: 'all 0.2s ease',
-                  boxShadow: 'inset 0 2px 4px 0 rgba(0,0,0,0.02)'
+                  width: '100%', marginTop: '8px', padding: '16px', fontSize: '16px', fontWeight: '600', 
+                  background: isBtnDisabled ? '#cbd5e1' : 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', 
+                  color: isBtnDisabled ? '#94a3b8' : '#fff', 
+                  border: 'none', borderRadius: '12px', cursor: isBtnDisabled ? 'not-allowed' : 'pointer', transition: 'all 0.2s',
+                  boxShadow: isBtnDisabled ? 'none' : '0 4px 14px 0 rgba(14, 165, 233, 0.39)'
                 }}
-                onFocus={(e) => { e.target.style.borderColor = 'var(--brand)'; e.target.style.boxShadow = '0 0 0 3px rgba(14,165,233,0.2)'; }}
-                onBlur={(e) => { e.target.style.borderColor = darkMode ? 'rgba(255,255,255,0.1)' : '#cbd5e1'; e.target.style.boxShadow = 'inset 0 2px 4px 0 rgba(0,0,0,0.02)'; }}
-              />
+                onMouseOver={(e) => { if(!isBtnDisabled) { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(14, 165, 233, 0.5)'; } }}
+                onMouseOut={(e) => { if(!isBtnDisabled) { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 4px 14px 0 rgba(14, 165, 233, 0.39)'; } }}
+                onMouseDown={(e) => { if(!isBtnDisabled) e.currentTarget.style.transform = 'scale(0.98)'; }}
+                onMouseUp={(e) => { if(!isBtnDisabled) e.currentTarget.style.transform = 'translateY(-2px)'; }}
+              >
+                Secure Login
+              </button>
+            </form>
+          )}
+
+          {forgotStep === 'email' && (
+            <form onSubmit={handleSendResetLink} style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text)', marginBottom: '4px' }}>Reset Password</h3>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '8px', color: 'var(--text)', textTransform: 'uppercase' }}>Username</label>
+                <input 
+                  type="text" 
+                  placeholder="Enter username" 
+                  value={resetUsername} onChange={e => setResetUsername(e.target.value)} required
+                  style={{ width: '100%', padding: '16px', fontSize: '15px', borderRadius: '12px', border: '1px solid #cbd5e1', color: 'var(--text)', outline: 'none' }}
+                />
+              </div>
+              <button 
+                type="submit" 
+                style={{ width: '100%', padding: '16px', fontSize: '16px', fontWeight: '600', background: '#6B38FB', color: '#fff', border: 'none', borderRadius: '12px', cursor: 'pointer' }}
+              >
+                Send Reset Link
+              </button>
+              <div style={{ textAlign: 'center' }}>
+                <button type="button" onClick={() => setForgotStep('none')} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '13px' }}>Back to Login</button>
+              </div>
+            </form>
+          )}
+
+          {forgotStep === 'link' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '22px', textAlign: 'center' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text)' }}>Simulation: Email Inbox</h3>
+              <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>
+                A password reset link has been sent to the email registered for <strong>{resetUsername}</strong>.
+              </p>
+              <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
+                <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '8px' }}>MOCK EMAIL INCOMING</div>
+                <button 
+                  onClick={() => setForgotStep('reset')}
+                  style={{ display: 'inline-block', padding: '10px 20px', background: '#22c55e', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', textDecoration: 'none' }}
+                >
+                  Click Reset Link from Email
+                </button>
+              </div>
+              <button type="button" onClick={() => setForgotStep('none')} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '13px' }}>Cancel</button>
             </div>
-            <div>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '8px', color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Password</label>
-              <input 
-                type="password" 
-                placeholder="Enter password" 
-                value={password} onChange={e => setPassword(e.target.value)} required 
-                style={{ 
-                  width: '100%', padding: '16px', fontSize: '15px', 
-                  background: darkMode ? 'rgba(15, 23, 42, 0.5)' : '#fff',
-                  border: darkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid #cbd5e1',
-                  borderRadius: '12px', color: 'var(--text)', outline: 'none', transition: 'all 0.2s ease',
-                  boxShadow: 'inset 0 2px 4px 0 rgba(0,0,0,0.02)'
-                }}
-                onFocus={(e) => { e.target.style.borderColor = 'var(--brand)'; e.target.style.boxShadow = '0 0 0 3px rgba(14,165,233,0.2)'; }}
-                onBlur={(e) => { e.target.style.borderColor = darkMode ? 'rgba(255,255,255,0.1)' : '#cbd5e1'; e.target.style.boxShadow = 'inset 0 2px 4px 0 rgba(0,0,0,0.02)'; }}
-              />
-            </div>
-            <button 
-              type="submit" 
-              style={{ 
-                width: '100%', marginTop: '8px', padding: '16px', fontSize: '16px', fontWeight: '600', 
-                background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)', color: '#fff', 
-                border: 'none', borderRadius: '12px', cursor: 'pointer', transition: 'all 0.2s',
-                boxShadow: '0 4px 14px 0 rgba(14, 165, 233, 0.39)'
-              }}
-              onMouseOver={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(14, 165, 233, 0.5)'; }}
-              onMouseOut={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 4px 14px 0 rgba(14, 165, 233, 0.39)'; }}
-              onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.98)'}
-              onMouseUp={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-            >
-              Secure Login
-            </button>
-          </form>
+          )}
+
+          {forgotStep === 'reset' && (
+            <form onSubmit={handleSaveNewPassword} style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text)' }}>Set New Password</h3>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '8px', color: 'var(--text)' }}>New Password</label>
+                <input 
+                  type="password" 
+                  placeholder="New password" 
+                  value={newPassword} onChange={e => setNewPassword(e.target.value)} required
+                  style={{ width: '100%', padding: '16px', fontSize: '15px', borderRadius: '12px', border: '1px solid #cbd5e1', color: 'var(--text)', outline: 'none' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', marginBottom: '8px', color: 'var(--text)' }}>Confirm Password</label>
+                <input 
+                  type="password" 
+                  placeholder="Confirm password" 
+                  value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required
+                  style={{ width: '100%', padding: '16px', fontSize: '15px', borderRadius: '12px', border: '1px solid #cbd5e1', color: 'var(--text)', outline: 'none' }}
+                />
+              </div>
+              <button 
+                type="submit" 
+                style={{ width: '100%', padding: '16px', fontSize: '16px', fontWeight: '600', background: '#22c55e', color: '#fff', border: 'none', borderRadius: '12px', cursor: 'pointer' }}
+              >
+                Save & Login
+              </button>
+            </form>
+          )}
 
         </div>
         
@@ -1395,6 +1640,30 @@ function MerchantPortal({
   };
 
   const getDashboardStats = () => {
+    if (dashDateRangeType === '7days' || dashDateRangeType === 'Last 7 Days') {
+      return {
+        totalAmt: 146000,
+        totalCount: 40,
+        openAmt: 98061,
+        openCount: 25,
+        openPct: 63,
+        lostAmt: 12560,
+        lostCount: 4,
+        lostPct: 10,
+        wonAmt: 35381,
+        wonCount: 11,
+        wonPct: 28,
+        slaAmt: 10000,
+        slaCount: 2,
+        slaPct: 5,
+        orderInsightCount: 18,
+        orderInsightDeflected: 14,
+        orderInsightSuccessRate: 78,
+        orderInsightAccepted: 9,
+        orderInsightAutoRate: 50,
+        overallWinRate: '28%'
+      };
+    }
     const list = getFilteredDashboardDisputes();
     const totalAmt = list.reduce((sum, c) => sum + c.txnAmt, 0);
     const totalCount = list.length;
@@ -1421,7 +1690,13 @@ function MerchantPortal({
       openAmt, openCount: openList.length, openPct,
       lostAmt, lostCount: lostList.length, lostPct,
       wonAmt, wonCount: wonList.length, wonPct,
-      slaAmt, slaCount: slaList.length, slaPct
+      slaAmt, slaCount: slaList.length, slaPct,
+      orderInsightCount: 18,
+      orderInsightDeflected: 14,
+      orderInsightSuccessRate: 78,
+      orderInsightAccepted: 9,
+      orderInsightAutoRate: 50,
+      overallWinRate: `${wonPct}%`
     };
   };
 
@@ -1777,7 +2052,19 @@ function MerchantPortal({
 
   const handleEvidenceFileChange = (slot, file) => {
     if (file) {
+      const maxLimit = 20 * 1024 * 1024;
+      if (file.size > maxLimit) {
+        showToast('File size exceeds 20MB limit', 'error');
+        return;
+      }
+      const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+      const allowed = ['.png', '.jpg', '.jpeg', '.pdf'];
+      if (!allowed.includes(ext)) {
+        showToast('Unsupported file type. Only PDF, PNG, and JPEG are allowed.', 'error');
+        return;
+      }
       setEvidenceFiles(prev => ({ ...prev, [slot]: file.name }));
+      showToast(`Uploaded ${file.name} successfully`, 'success');
     }
   };
 
@@ -1902,16 +2189,20 @@ function MerchantPortal({
   activeReportsList = activeReportsList.filter(cb => {
     if (reportFilter.searchText) {
       const q = reportFilter.searchText.toLowerCase();
-      if (reportFilter.searchBy === 'Txn ID') {
+      const searchBy = reportFilter.searchBy ? reportFilter.searchBy.toLowerCase().replace(/[\s-_]/g, '') : '';
+      if (searchBy === 'txnid' || searchBy === 'transactionid') {
         if (!cb.txnId || !cb.txnId.toLowerCase().includes(q)) return false;
-      } else if (reportFilter.searchBy === 'RRN') {
+      } else if (searchBy === 'rrn') {
         if (!cb.rrn || !cb.rrn.toLowerCase().includes(q)) return false;
-      } else if (reportFilter.searchBy === 'TID') {
+      } else if (searchBy === 'tid') {
         if (!cb.tid || !cb.tid.toLowerCase().includes(q)) return false;
-      } else if (reportFilter.searchBy === 'MID') {
+      } else if (searchBy === 'mid') {
         if (!cb.userId || !cb.userId.toLowerCase().includes(q)) return false;
-      } else if (reportFilter.searchBy === 'Case ID') {
+      } else if (searchBy === 'caseid') {
         if ((!cb.caseId || !cb.caseId.toLowerCase().includes(q)) && (!cb.id || !cb.id.toLowerCase().includes(q))) return false;
+      } else if (searchBy === 'arnnumber' || searchBy === 'arn') {
+        const cbArn = cb.arn || cb.rrn;
+        if (!cbArn || !cbArn.toLowerCase().includes(q)) return false;
       } else {
         if (
           (!cb.rrn || !cb.rrn.toLowerCase().includes(q)) &&
@@ -1949,9 +2240,9 @@ function MerchantPortal({
   const renderDisputesTable = (paging) => {
     if (paging.paginated.length === 0) {
       return (
-        <div style={{ textAlign: 'center', padding: '48px', color: '#64748b', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+        <div style={{ textAlign: 'center', padding: '48px', color: '#64748b', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }} id="no-disputes-found">
           <span style={{ fontSize: '48px', display: 'block', marginBottom: '16px' }}>📁</span>
-          <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#1e293b', marginBottom: '8px' }}>No Data Found!</h3>
+          <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#1e293b', marginBottom: '8px' }}>No disputes found</h3>
           <p style={{ fontSize: '13px', margin: 0 }}>Try adjusting your search criteria or date ranges.</p>
         </div>
       );
@@ -1984,11 +2275,10 @@ function MerchantPortal({
                 <th style={{ position: 'sticky', top: 0, zIndex: 10, background: '#F1F3F5', padding: '10px 8px', fontWeight: '700', color: '#1e293b' }}>MID</th>
                 <th style={{ position: 'sticky', top: 0, zIndex: 10, background: '#F1F3F5', padding: '10px 8px', fontWeight: '700', color: '#1e293b' }}>ARN</th>
                 <th style={{ position: 'sticky', top: 0, zIndex: 10, background: '#F1F3F5', padding: '10px 8px', fontWeight: '700', color: '#1e293b' }}>Dispute Status</th>
-                <th style={{ position: 'sticky', top: 0, zIndex: 10, background: '#F1F3F5', padding: '10px 8px', fontWeight: '700', color: '#1e293b' }}>TXN Ref. Number</th>
+                <th style={{ position: 'sticky', top: 0, zIndex: 10, background: '#F1F3F5', padding: '10px 8px', fontWeight: '700', color: '#1e293b' }}>Transaction Reference Number</th>
                 <th style={{ position: 'sticky', top: 0, zIndex: 10, background: '#F1F3F5', padding: '10px 8px', fontWeight: '700', color: '#1e293b' }}>Responded By</th>
-                {reportTab === 'doc-verification' && (
-                  <th style={{ position: 'sticky', top: 0, zIndex: 10, background: '#F1F3F5', padding: '10px 8px', fontWeight: '700', color: '#1e293b', textAlign: 'center' }}>Actions</th>
-                )}
+                <th style={{ position: 'sticky', top: 0, zIndex: 10, background: '#F1F3F5', padding: '10px 8px', fontWeight: '700', color: '#1e293b' }}>Response Date</th>
+                <th style={{ position: 'sticky', top: 0, zIndex: 10, background: '#F1F3F5', padding: '10px 8px', fontWeight: '700', color: '#1e293b', textAlign: 'center' }}>Actions</th>
               </tr>
             </thead>
           )}
@@ -2120,7 +2410,7 @@ function MerchantPortal({
                     minWidth: targetDisputeId ? '120px' : 'auto',
                     boxSizing: 'border-box'
                   }}>
-                    {targetDisputeId && <div style={{ fontSize: '10px', color: '#64748b', fontWeight: '600', textTransform: 'uppercase', marginBottom: '2px', display: 'block' }}>TXN Ref. Number</div>}
+                    {targetDisputeId && <div style={{ fontSize: '10px', color: '#64748b', fontWeight: '600', textTransform: 'uppercase', marginBottom: '2px', display: 'block' }}>Transaction Reference Number</div>}
                     {cb.txnId}
                   </td>
                   <td style={{ 
@@ -2133,153 +2423,185 @@ function MerchantPortal({
                     boxSizing: 'border-box'
                   }}>
                     {targetDisputeId && <div style={{ fontSize: '10px', color: '#64748b', fontWeight: '600', textTransform: 'uppercase', marginBottom: '2px', display: 'block' }}>Responded By</div>}
+                    {cb.merchantAction ? 'Merchant' : 'Pending'}
+                  </td>
+                  <td style={{ 
+                    padding: targetDisputeId ? '4px 0' : '10px 8px', 
+                    color: '#334155', 
+                    fontWeight: '500', 
+                    display: targetDisputeId ? 'inline-block' : 'table-cell',
+                    flex: targetDisputeId ? '1 1 45%' : 'none',
+                    minWidth: targetDisputeId ? '120px' : 'auto',
+                    boxSizing: 'border-box'
+                  }}>
+                    {targetDisputeId && <div style={{ fontSize: '10px', color: '#64748b', fontWeight: '600', textTransform: 'uppercase', marginBottom: '2px', display: 'block' }}>Response Date</div>}
                     <span style={getRespondByStyle(cb.respondByDate)}>{formatRespondByOnlyDate(cb.respondByDate)}</span>
                   </td>
-                  {reportTab === 'doc-verification' && (
-                    <td 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                      }}
-                      style={{
-                        padding: targetDisputeId ? '4px 0' : '10px 8px',
-                        display: targetDisputeId ? 'inline-block' : 'table-cell',
-                        flex: targetDisputeId ? '1 1 90%' : 'none',
-                        textAlign: 'center',
-                        boxSizing: 'border-box'
-                      }}
-                    >
-                      {targetDisputeId && <div style={{ fontSize: '10px', color: '#64748b', fontWeight: '600', textTransform: 'uppercase', marginBottom: '2px', display: 'block' }}>Actions</div>}
-                      <div style={{ display: 'inline-flex', gap: '8px', alignItems: 'center', justifyContent: 'center' }}>
-                        {/* Upload More Evidence Icon Button */}
-                        <div style={{ position: 'relative', display: 'inline-block' }}>
-                          <button
-                            onClick={() => {
-                              setTargetDisputeId(cb.id);
-                              setActiveModal('contest');
-                            }}
-                            style={{
-                              background: '#f1f5f9',
-                              border: '1px solid #cbd5e1',
-                              borderRadius: '50%',
-                              width: '32px',
-                              height: '32px',
-                              cursor: 'pointer',
-                              fontSize: '14px',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              transition: 'all 0.2s',
-                            }}
-                            onMouseEnter={(e) => { 
-                              e.currentTarget.style.background = '#e2e8f0'; 
-                              setHoveredRowAction({ id: cb.id, type: 'upload' });
-                            }}
-                            onMouseLeave={(e) => { 
-                              e.currentTarget.style.background = '#f1f5f9'; 
-                              setHoveredRowAction(null);
-                            }}
-                          >
-                            📤
-                          </button>
-                          {hoveredRowAction?.id === cb.id && hoveredRowAction?.type === 'upload' && (
-                            <div style={{
-                              position: 'absolute',
-                              bottom: '100%',
-                              left: '50%',
-                              transform: 'translateX(-50%) translateY(-6px)',
-                              background: '#1e293b',
-                              color: '#fff',
-                              padding: '4px 8px',
-                              borderRadius: '4px',
-                              fontSize: '10px',
-                              fontWeight: '600',
-                              whiteSpace: 'nowrap',
-                              pointerEvents: 'none',
-                              boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-                              zIndex: 100
-                            }}>
-                              Upload More Evidence
+                  <td 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                    }}
+                    style={{
+                      padding: targetDisputeId ? '4px 0' : '10px 8px',
+                      display: targetDisputeId ? 'inline-block' : 'table-cell',
+                      flex: targetDisputeId ? '1 1 90%' : 'none',
+                      textAlign: 'center',
+                      boxSizing: 'border-box'
+                    }}
+                  >
+                    {targetDisputeId && <div style={{ fontSize: '10px', color: '#64748b', fontWeight: '600', textTransform: 'uppercase', marginBottom: '2px', display: 'block' }}>Actions</div>}
+                    <div style={{ display: 'inline-flex', gap: '8px', alignItems: 'center', justifyContent: 'center' }}>
+                      <button
+                        onClick={() => {
+                          setTargetDisputeId(cb.id);
+                        }}
+                        style={{
+                          background: '#f1f5f9',
+                          border: '1px solid #cbd5e1',
+                          borderRadius: '50%',
+                          width: '32px',
+                          height: '32px',
+                          cursor: 'pointer',
+                          fontSize: '14px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'all 0.2s',
+                        }}
+                        title="View Details"
+                      >
+                        👁️
+                      </button>
+                      {(reportTab === 'doc-verification' || reportTab === 'doc-pending') && (
+                        <>
+                          <div style={{ position: 'relative', display: 'inline-block' }}>
+                            <button
+                              onClick={() => {
+                                setTargetDisputeId(cb.id);
+                                setActiveModal('contest');
+                              }}
+                              style={{
+                                background: '#f1f5f9',
+                                border: '1px solid #cbd5e1',
+                                borderRadius: '50%',
+                                width: '32px',
+                                height: '32px',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'all 0.2s',
+                              }}
+                              onMouseEnter={(e) => { 
+                                e.currentTarget.style.background = '#e2e8f0'; 
+                                setHoveredRowAction({ id: cb.id, type: 'upload' });
+                              }}
+                              onMouseLeave={(e) => { 
+                                e.currentTarget.style.background = '#f1f5f9'; 
+                                setHoveredRowAction(null);
+                              }}
+                            >
+                              📤
+                            </button>
+                            {hoveredRowAction?.id === cb.id && hoveredRowAction?.type === 'upload' && (
                               <div style={{
                                 position: 'absolute',
-                                top: '100%',
+                                bottom: '100%',
                                 left: '50%',
-                                transform: 'translateX(-50%)',
-                                borderWidth: '4px',
-                                borderStyle: 'solid',
-                                borderColor: '#1e293b transparent transparent transparent',
-                                width: 0,
-                                height: 0
-                              }} />
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Comment Icon Button */}
-                        <div style={{ position: 'relative', display: 'inline-block' }}>
-                          <button
-                            onClick={() => {
-                              setTargetDisputeId(cb.id);
-                              setActiveModal('merchantComment');
-                            }}
-                            style={{
-                              background: '#f1f5f9',
-                              border: '1px solid #cbd5e1',
-                              borderRadius: '50%',
-                              width: '32px',
-                              height: '32px',
-                              cursor: 'pointer',
-                              fontSize: '14px',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              transition: 'all 0.2s',
-                            }}
-                            onMouseEnter={(e) => { 
-                              e.currentTarget.style.background = '#e2e8f0'; 
-                              setHoveredRowAction({ id: cb.id, type: 'comment' });
-                            }}
-                            onMouseLeave={(e) => { 
-                              e.currentTarget.style.background = '#f1f5f9'; 
-                              setHoveredRowAction(null);
-                            }}
-                          >
-                            💬
-                          </button>
-                          {hoveredRowAction?.id === cb.id && hoveredRowAction?.type === 'comment' && (
-                            <div style={{
-                              position: 'absolute',
-                              bottom: '100%',
-                              left: '50%',
-                              transform: 'translateX(-50%) translateY(-6px)',
-                              background: '#1e293b',
-                              color: '#fff',
-                              padding: '4px 8px',
-                              borderRadius: '4px',
-                              fontSize: '10px',
-                              fontWeight: '600',
-                              whiteSpace: 'nowrap',
-                              pointerEvents: 'none',
-                              boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-                              zIndex: 100
-                            }}>
-                              Comment
+                                transform: 'translateX(-50%) translateY(-6px)',
+                                background: '#1e293b',
+                                color: '#fff',
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                fontSize: '10px',
+                                fontWeight: '600',
+                                whiteSpace: 'nowrap',
+                                pointerEvents: 'none',
+                                boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                                zIndex: 100
+                              }}>
+                                Upload More Evidence
+                                <div style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  left: '50%',
+                                  transform: 'translateX(-50%)',
+                                  borderWidth: '4px',
+                                  borderStyle: 'solid',
+                                  borderColor: '#1e293b transparent transparent transparent',
+                                  width: 0,
+                                  height: 0
+                                }} />
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ position: 'relative', display: 'inline-block' }}>
+                            <button
+                              onClick={() => {
+                                setTargetDisputeId(cb.id);
+                                setActiveModal('merchantComment');
+                              }}
+                              style={{
+                                background: '#f1f5f9',
+                                border: '1px solid #cbd5e1',
+                                borderRadius: '50%',
+                                width: '32px',
+                                height: '32px',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'all 0.2s',
+                              }}
+                              onMouseEnter={(e) => { 
+                                e.currentTarget.style.background = '#e2e8f0'; 
+                                setHoveredRowAction({ id: cb.id, type: 'comment' });
+                              }}
+                              onMouseLeave={(e) => { 
+                                e.currentTarget.style.background = '#f1f5f9'; 
+                                setHoveredRowAction(null);
+                              }}
+                            >
+                              💬
+                            </button>
+                            {hoveredRowAction?.id === cb.id && hoveredRowAction?.type === 'comment' && (
                               <div style={{
                                 position: 'absolute',
-                                top: '100%',
+                                bottom: '100%',
                                 left: '50%',
-                                transform: 'translateX(-50%)',
-                                borderWidth: '4px',
-                                borderStyle: 'solid',
-                                borderColor: '#1e293b transparent transparent transparent',
-                                width: 0,
-                                height: 0
-                              }} />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                  )}
+                                transform: 'translateX(-50%) translateY(-6px)',
+                                background: '#1e293b',
+                                color: '#fff',
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                fontSize: '10px',
+                                fontWeight: '600',
+                                whiteSpace: 'nowrap',
+                                pointerEvents: 'none',
+                                boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                                zIndex: 100
+                              }}>
+                                Comment
+                                <div style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  left: '50%',
+                                  transform: 'translateX(-50%)',
+                                  borderWidth: '4px',
+                                  borderStyle: 'solid',
+                                  borderColor: '#1e293b transparent transparent transparent',
+                                  width: 0,
+                                  height: 0
+                                }} />
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               );
             })}
@@ -2437,15 +2759,16 @@ function MerchantPortal({
       {guidedTourStep !== null && <WebsiteTour />}
       <header className="app-header">
         <button className="hdr-hamburger" onClick={() => setSidebarCollapsed(!sidebarCollapsed)}>☰</button>
-        <div className="hdr-logo"><div className="hl-text">iServeU<sup>®</sup></div></div>
+        <div className="hdr-logo" id="iserveu-logo"><div className="hl-text">iServeU<sup>®</sup></div></div>
         <div className="hdr-space"></div>
 
-        <button className="theme-toggle-btn" onClick={toggleTheme} title="Toggle Dark/Light Mode">
+        <button className="theme-toggle-btn" id="theme-toggle" onClick={toggleTheme} title="Toggle Dark/Light Mode">
           {darkMode ? '☀️' : '🌙'}
         </button>
-        <button className="hdr-bell">🔔<span className="notif-dot"></span></button>
+        <button className="hdr-bell" id="notification-bell">🔔<span className="notif-dot"></span></button>
         <div 
           className="hdr-user" 
+          id="merchant-profile"
           title={currentUser.name}
           onClick={() => setProfileMenuOpen(!profileMenuOpen)}
           style={{ position: 'relative', cursor: 'pointer' }}
@@ -2467,7 +2790,7 @@ function MerchantPortal({
 
       <div className="app-body">
         <nav className={`sidebar ${sidebarCollapsed || targetDisputeId ? 'collapsed' : ''}`} id="mSidebar">
-          <div className="sb-welcome">Welcome, masteruser</div>
+          <div className="sb-welcome">Welcome, {currentUser.name}</div>
           <div className="sb-section">
             {!targetDisputeId && (
               <>
@@ -2490,28 +2813,22 @@ function MerchantPortal({
                   <span className="si">📋</span> Dispute Management
                 </div>
                 <div 
-                  className={`sb-item ${showFaq ? 'active' : ''}`} 
-                  onClick={() => setShowFaq(!showFaq)}
-                >
-                  <span className="si">❓</span> FAQ & Help
-                </div>
-                <div 
                   className={`sb-item ${activePage === 'm-reports' ? 'active' : ''}`} 
                   onClick={() => {
                     setActivePage('m-reports');
                     setShowFaq(false);
                   }}
                 >
-                  <span className="si">📊</span> Reports & Analytics
+                  <span className="si">📊</span> Analytics
                 </div>
                 <div 
-                  className={`sb-item ${activePage === 'm-vrol-automation' ? 'active' : ''}`} 
+                  className={`sb-item ${activePage === 'faq' ? 'active' : ''}`} 
                   onClick={() => {
-                    setActivePage('m-vrol-automation');
+                    setActivePage('faq');
                     setShowFaq(false);
                   }}
                 >
-                  <span className="si">⚙️</span> VROL Automation
+                  <span className="si">❓</span> FAQ & Help
                 </div>
               </>
             )}
@@ -2640,6 +2957,46 @@ function MerchantPortal({
                       <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', fontWeight: '500', display: 'flex', justifyContent: 'space-between' }}>
                         <span>{stats.slaCount} cases</span>
                         <span style={{ fontWeight: '700', color: '#7C3AED' }}>{stats.slaPct}%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', marginTop: '20px' }}>
+                  {/* Order Insight Card */}
+                  <div className="stat-card order-insight">
+                    <div className="stat-icon">👁️</div>
+                    <div className="stat-content">
+                      <div className="stat-lbl">Total Order Insight Cases</div>
+                      <div className="stat-val">{stats.orderInsightCount}</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', fontWeight: '500', display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Deflected: {stats.orderInsightDeflected}</span>
+                        <span style={{ fontWeight: '700', color: '#10B981' }}>Success Rate: {stats.orderInsightSuccessRate}%</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Order Insight Auto Accept Card */}
+                  <div className="stat-card oi-auto-accept">
+                    <div className="stat-icon">🤖</div>
+                    <div className="stat-content">
+                      <div className="stat-lbl">Order Insight Auto Accept</div>
+                      <div className="stat-val">{stats.orderInsightAccepted} cases</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', fontWeight: '500', display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Total OI: {stats.orderInsightCount}</span>
+                        <span style={{ fontWeight: '700', color: '#7C3AED' }}>Auto Accept Rate: {stats.orderInsightAutoRate}%</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Win Rate Card */}
+                  <div className="stat-card win-rate">
+                    <div className="stat-icon">📈</div>
+                    <div className="stat-content">
+                      <div className="stat-lbl">Overall Win Rate</div>
+                      <div className="stat-val">{stats.overallWinRate}</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', fontWeight: '500' }}>
+                        Based on closed disputes
                       </div>
                     </div>
                   </div>
@@ -3172,19 +3529,7 @@ function MerchantPortal({
                           gap: '6px'
                         }}
                       >
-                        {tab.label}
-                        {(tab.key === 'doc-pending' || tab.key === 'doc-verification') && (
-                          <span style={{
-                            background: isActive ? '#6B38FB' : '#E2E8F0',
-                            color: isActive ? '#FFFFFF' : '#6B38FB',
-                            padding: '2px 8px',
-                            borderRadius: '12px',
-                            fontSize: '12px',
-                            fontWeight: '600'
-                          }}>
-                            {tab.count}
-                          </span>
-                        )}
+                        {tab.label} ({tab.count})
                       </div>
                     );
                   })}
@@ -3938,6 +4283,8 @@ function MerchantPortal({
                                 >
                                   <option value="">Select All</option>
                                   <option value="Visa">Visa</option>
+                                  <option value="Mastercard">Mastercard</option>
+                                  <option value="RuPay">RuPay</option>
                                 </select>
                               </div>
                             </div>
@@ -3955,13 +4302,12 @@ function MerchantPortal({
                                 <option value="due_2_7">Due in 2 to 7 Days</option>
                                 <option value="due_over_7">Due after 7 Days</option>
                                 <option value="insufficient_evidence">Insufficient Evidence</option>
-                                <option value="Dispute Won Partially">Dispute Won Partially</option>
-                                <option value="Dispute Won Fully">Dispute Won Fully</option>
-                                <option value="Dispute Lost – TAT Expired">Dispute Lost – TAT Expired</option>
-                                <option value="Dispute Lost – Accepted">Dispute Lost – Accepted</option>
+                                <option value="Chargeback in Progress">Chargeback in Progress</option>
+                                <option value="Chargeback Resubmitted">Chargeback Resubmitted</option>
                                 <option value="Document Rejected">Document Rejected</option>
-                                <option value="Chargeback In Progress">Chargeback In Progress</option>
-                                <option value="Chargeback Resubmit">Chargeback Resubmit</option>
+                                <option value="Under Review">Under Review</option>
+                                <option value="Dispute Won">Dispute Won</option>
+                                <option value="Dispute Lost">Dispute Lost</option>
                               </select>
                             </div>
 
@@ -3974,11 +4320,12 @@ function MerchantPortal({
                                   style={{ width: '100%', padding: '8px', border: '1px solid #E2E8F0', borderRadius: '4px', fontSize: '13px', background: '#FFFFFF', color: '#1E293B' }}
                                 >
                                   <option value="">Select All</option>
-                                  <option value="Txn ID">Transaction ID (Txn ID)</option>
-                                  <option value="RRN">RRN</option>
-                                  <option value="TID">TID</option>
-                                  <option value="MID">MID</option>
                                   <option value="Case ID">Case ID</option>
+                                  <option value="ARN Number">ARN Number</option>
+                                  <option value="MID">MID</option>
+                                  <option value="TID">TID</option>
+                                  <option value="Transaction ID">Transaction ID</option>
+                                  <option value="RRN">RRN</option>
                                 </select>
                               </div>
                               {reportFilter.searchBy && (
@@ -4217,376 +4564,572 @@ function MerchantPortal({
                             </div>
                             
                             <div style={{ padding: '20px', overflowY: 'auto', flex: 1, background: '#f8fafc' }}>
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', alignItems: 'stretch' }}>
-                                {/* Left Column: Upload Evidence, Actions, Uploaded Documents, and Timeline */}
-                                <div style={{ flex: '1 1 calc(50% - 10px)', minWidth: '300px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                  {/* Locked State Notification */}
-                                  {cb.isLocked && (
-                                    <div style={{ background: '#f1f5f9', border: '1.5px solid #cbd5e1', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)', color: '#64748b', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                      <span style={{ fontSize: '20px' }}>🔒</span>
-                                      <div>
-                                        <div style={{ fontWeight: '700', color: '#334155', fontSize: '13px' }}>Transaction Locked</div>
-                                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>This dispute is locked to prevent duplicate chargebacks or manual refunds while in final routing states.</div>
+                              {(() => {
+                                // 1. Compute related disputes
+                                let relatedDisputes = chargebacks.filter(c => c.id !== cb.id && c.userName === cb.userName);
+                                if (relatedDisputes.length === 0) {
+                                  relatedDisputes = chargebacks.filter(c => c.id !== cb.id);
+                                }
+                                relatedDisputes = relatedDisputes.slice(0, 5);
+
+                                // 2. Parse comments history
+                                const commentsList = [];
+                                if (cb.timeline && Array.isArray(cb.timeline)) {
+                                  cb.timeline.forEach(entry => {
+                                    if (entry.title === 'Comment Added' || entry.userAction === 'Merchant Comment' || entry.by) {
+                                      commentsList.push({
+                                        by: entry.by || 'Merchant',
+                                        time: entry.time,
+                                        remarks: entry.remarks || entry.comments
+                                      });
+                                    }
+                                  });
+                                }
+                                const dynamicTimeline = getTimelineData(cb);
+                                dynamicTimeline.forEach(entry => {
+                                  if (entry.userAction === 'Merchant Comment' || entry.title === 'Remarks Updated') {
+                                    const isDuplicate = commentsList.some(c => c.remarks === entry.remarks);
+                                    if (!isDuplicate) {
+                                      commentsList.push({
+                                        by: entry.userAction === 'Merchant Comment' ? 'Merchant' : (entry.by || 'System'),
+                                        time: entry.time,
+                                        remarks: entry.remarks
+                                      });
+                                    }
+                                  }
+                                });
+
+                                return (
+                                  <div style={{ display: 'flex', gap: '20px', alignItems: 'stretch', flexWrap: 'wrap' }}>
+                                    {/* Left Column (40% width) */}
+                                    <div style={{ flex: '1 1 38%', minWidth: '280px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                      {/* Case Summary Card */}
+                                      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                                        <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b', marginBottom: '12px', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                          <span>📋</span> Case Summary
+                                        </h3>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}>
+                                            <span style={{ color: '#64748B' }}>Case ID:</span>
+                                            <strong style={{ color: '#1e293b' }}>{cb.id}</strong>
+                                          </div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}>
+                                            <span style={{ color: '#64748B' }}>Visa Case ID:</span>
+                                            <strong style={{ color: '#1e293b' }}>{cb.visaId || 'V-' + (cb.id || 'XXXX').substring(0, 6).toUpperCase()}</strong>
+                                          </div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}>
+                                            <span style={{ color: '#64748B' }}>Dispute Type:</span>
+                                            <strong style={{ color: '#1e293b' }}>{getDisputeType(cb)}</strong>
+                                          </div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}>
+                                            <span style={{ color: '#64748B' }}>Merchant Name:</span>
+                                            <strong style={{ color: '#1e293b' }}>{cb.userName}</strong>
+                                          </div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}>
+                                            <span style={{ color: '#64748B' }}>MID:</span>
+                                            <strong style={{ color: '#1e293b' }}>{cb.userId || ('ISU-' + (cb.userName || '9999').substring(0,4).toUpperCase())}</strong>
+                                          </div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}>
+                                            <span style={{ color: '#64748B' }}>ARN Number:</span>
+                                            <strong style={{ color: '#1e293b' }}>{cb.arn || cb.rrn}</strong>
+                                          </div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}>
+                                            <span style={{ color: '#64748B' }}>Transaction Reference Number:</span>
+                                            <strong style={{ color: '#1e293b' }}>{cb.txnId}</strong>
+                                          </div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}>
+                                            <span style={{ color: '#64748B' }}>Current Dispute Status:</span>
+                                            <strong style={{ color: '#1e293b' }}>{cb.mStatus}</strong>
+                                          </div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}>
+                                            <span style={{ color: '#64748B' }}>Response Date:</span>
+                                            <strong style={{ color: '#1e293b' }}>{cb.respondByDate ? formatDateDisp(cb.respondByDate) : 'N/A'}</strong>
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      {/* Related Disputes Card */}
+                                      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                                        <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                          <span>🔗</span> Related Disputes
+                                        </h3>
+                                        {relatedDisputes.length > 0 ? (
+                                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto' }}>
+                                            {relatedDisputes.map(item => (
+                                              <div
+                                                key={item.id}
+                                                onClick={() => setTargetDisputeId(item.id)}
+                                                style={{
+                                                  padding: '10px',
+                                                  borderRadius: '8px',
+                                                  border: '1px solid #e2e8f0',
+                                                  background: '#f8fafc',
+                                                  cursor: 'pointer',
+                                                  fontSize: '12px',
+                                                  transition: 'all 0.2s',
+                                                  display: 'flex',
+                                                  justifyContent: 'space-between',
+                                                  alignItems: 'center'
+                                                }}
+                                                onMouseEnter={e => {
+                                                  e.currentTarget.style.borderColor = '#6B38FB';
+                                                  e.currentTarget.style.background = '#f5f3ff';
+                                                }}
+                                                onMouseLeave={e => {
+                                                  e.currentTarget.style.borderColor = '#e2e8f0';
+                                                  e.currentTarget.style.background = '#f8fafc';
+                                                }}
+                                              >
+                                                <div>
+                                                  <div style={{ fontWeight: '700', color: '#1e293b' }}>{item.id}</div>
+                                                  <div style={{ fontSize: '11px', color: '#64748b' }}>{getDisputeType(item)}</div>
+                                                </div>
+                                                <div style={{ fontWeight: '700', color: '#6B38FB' }}>
+                                                  {formatINR ? formatINR(item.txnAmt) : '₹' + item.txnAmt}
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        ) : (
+                                          <div style={{ color: '#64748b', fontSize: '12px', fontStyle: 'italic', textAlign: 'center', padding: '12px 0' }}>
+                                            No related disputes found.
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
-                                  )}
 
-                                  {/* Collaboration Workflow Panel */}
-                                  {cb.isCollaboration && cb.mSubStatus === 'Pre-Arbitration - Review Required' && !cb.isLocked && (
-                                    <div style={{ background: 'linear-gradient(135deg, #fef3c7 0%, #fffbeb 100%)', border: '1.5px solid #f59e0b', borderRadius: '12px', padding: '20px', boxShadow: '0 4px 6px rgba(0,0,0,0.03)', marginBottom: '16px' }}>
-                                      <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#b45309', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <span>⚠️</span> Pre-Arbitration - Review Required
-                                      </h3>
-                                      <div style={{ fontSize: '12px', color: '#78350f', marginBottom: '14px', lineHeight: '1.5' }}>
-                                        <strong>Urgent Countdown:</strong> T-Minus 5 Days remaining before default liability loss. <br />
-                                        <strong>Recommended Action:</strong> Review cardholder letter or Accept Financial Liability.
-                                      </div>
+                                    {/* Right Column (60% width) */}
+                                    <div style={{ flex: '1 1 58%', minWidth: '320px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                                       
-                                      {cb.preArbCounterReason && (
-                                        <div style={{ background: '#fff', border: '1px solid #fcd34d', borderRadius: '8px', padding: '12px', fontSize: '12px', color: '#374151', marginBottom: '16px', fontStyle: 'italic' }}>
-                                          <strong>Cardholder Counter-Reason:</strong> "{cb.preArbCounterReason}"
+                                      {/* Locked State Notification */}
+                                      {cb.isLocked && (
+                                        <div style={{ background: '#f1f5f9', border: '1.5px solid #cbd5e1', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)', color: '#64748b', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                          <span style={{ fontSize: '20px' }}>🔒</span>
+                                          <div>
+                                            <div style={{ fontWeight: '700', color: '#334155', fontSize: '13px' }}>Transaction Locked</div>
+                                            <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>This dispute is locked to prevent duplicate chargebacks or manual refunds while in final routing states.</div>
+                                          </div>
                                         </div>
                                       )}
 
-                                      <div style={{ display: 'flex', gap: '12px' }}>
-                                        <button 
-                                          onClick={() => handleCollaborationAction('ACCEPT_LIABILITY')}
-                                          style={{ flex: 1, padding: '10px 14px', borderRadius: '8px', background: '#d97706', color: '#fff', border: 'none', fontWeight: '700', cursor: 'pointer', fontSize: '12px' }}
-                                        >
-                                          Accept Liability
-                                        </button>
-                                        <button 
-                                          onClick={() => handleCollaborationAction('ESCALATE_TO_DRM')}
-                                          style={{ flex: 1, padding: '10px 14px', borderRadius: '8px', background: '#6B38FB', color: '#fff', border: 'none', fontWeight: '700', cursor: 'pointer', fontSize: '12px' }}
-                                        >
-                                          Escalate to DRM
-                                        </button>
-                                      </div>
-                                    </div>
-                                  )}
+                                      {/* Collaboration Workflow Panel */}
+                                      {cb.isCollaboration && cb.mSubStatus === 'Pre-Arbitration - Review Required' && !cb.isLocked && (
+                                        <div style={{ background: 'linear-gradient(135deg, #fef3c7 0%, #fffbeb 100%)', border: '1.5px solid #f59e0b', borderRadius: '12px', padding: '20px', boxShadow: '0 4px 6px rgba(0,0,0,0.03)', marginBottom: '16px' }}>
+                                          <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#b45309', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <span>⚠️</span> Pre-Arbitration - Review Required
+                                          </h3>
+                                          <div style={{ fontSize: '12px', color: '#78350f', marginBottom: '14px', lineHeight: '1.5' }}>
+                                            <strong>Urgent Countdown:</strong> T-Minus 5 Days remaining before default liability loss. <br />
+                                            <strong>Recommended Action:</strong> Review cardholder letter or Accept Financial Liability.
+                                          </div>
+                                          
+                                          {cb.preArbCounterReason && (
+                                            <div style={{ background: '#fff', border: '1px solid #fcd34d', borderRadius: '8px', padding: '12px', fontSize: '12px', color: '#374151', marginBottom: '16px', fontStyle: 'italic' }}>
+                                              <strong>Cardholder Counter-Reason:</strong> "{cb.preArbCounterReason}"
+                                            </div>
+                                          )}
 
-                                  {/* Allocation Compelling Evidence Workspace */}
-                                  {(cb.adjType === 'Formal Dispute Inflow' || cb.mSubStatus === 'Action Required - Awaiting Merchant Input') && !cb.isLocked && !cb.mSubStatus.includes('Submitted') && (
-                                    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-                                      <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <span>📋</span> Compile Compelling Evidence (Allocation track)
-                                      </h3>
-                                      <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '16px', lineHeight: '1.4' }}>
-                                        Upload and specify your files to satisfy Visa's compelling data requirements. Run the formatting validation script before submission.
-                                      </p>
-
-                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
-                                        <div>
-                                          <label style={{ fontSize: '11px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Core Verification File</label>
-                                          <input 
-                                            type="text" 
-                                            placeholder="e.g. pin_log_terminal.pdf" 
-                                            value={allocationCoreFile} 
-                                            onChange={(e) => setAllocationCoreFile(e.target.value)} 
-                                            style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '4px', outline: 'none', marginBottom: '4px' }} 
-                                          />
-                                          <input 
-                                            type="text" 
-                                            placeholder="Description, e.g. POS terminal chip read signature" 
-                                            value={allocationCoreDesc} 
-                                            onChange={(e) => setAllocationCoreDesc(e.target.value)} 
-                                            style={{ width: '100%', padding: '6px 10px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none', color: '#64748b' }} 
-                                          />
-                                        </div>
-
-                                        <div>
-                                          <label style={{ fontSize: '11px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Supplementary Proof Log</label>
-                                          <input 
-                                            type="text" 
-                                            placeholder="e.g. device_id_finger.json" 
-                                            value={allocationSupplFile} 
-                                            onChange={(e) => setAllocationSupplFile(e.target.value)} 
-                                            style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '4px', outline: 'none', marginBottom: '4px' }} 
-                                          />
-                                          <input 
-                                            type="text" 
-                                            placeholder="Description, e.g. Device metadata" 
-                                            value={allocationSupplDesc} 
-                                            onChange={(e) => setAllocationSupplDesc(e.target.value)} 
-                                            style={{ width: '100%', padding: '6px 10px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none', color: '#64748b' }} 
-                                          />
-                                        </div>
-
-                                        <div>
-                                          <label style={{ fontSize: '11px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Historical Validation Data</label>
-                                          <input 
-                                            type="text" 
-                                            placeholder="e.g. past_clearing.csv" 
-                                            value={allocationHistFile} 
-                                            onChange={(e) => setAllocationHistFile(e.target.value)} 
-                                            style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '4px', outline: 'none', marginBottom: '4px' }} 
-                                          />
-                                          <input 
-                                            type="text" 
-                                            placeholder="Description, e.g. Previous undisputed history" 
-                                            value={allocationHistDesc} 
-                                            onChange={(e) => setAllocationHistDesc(e.target.value)} 
-                                            style={{ width: '100%', padding: '6px 10px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none', color: '#64748b' }} 
-                                          />
-                                        </div>
-                                      </div>
-
-                                      {validationResult && (
-                                        <div style={{ padding: '10px 12px', borderRadius: '6px', fontSize: '11px', marginBottom: '14px', border: '1px solid', borderColor: validationResult.success ? '#bbf7d0' : '#fecaca', background: validationResult.success ? '#f0fdf4' : '#fdf2f2', color: validationResult.success ? '#15803d' : '#b91c1c' }}>
-                                          {validationResult.msg}
+                                          <div style={{ display: 'flex', gap: '12px' }}>
+                                            <button 
+                                              onClick={() => handleCollaborationAction('ACCEPT_LIABILITY')}
+                                              style={{ flex: 1, padding: '10px 14px', borderRadius: '8px', background: '#d97706', color: '#fff', border: 'none', fontWeight: '700', cursor: 'pointer', fontSize: '12px' }}
+                                            >
+                                              Accept Liability
+                                            </button>
+                                            <button 
+                                              onClick={() => handleCollaborationAction('ESCALATE_TO_DRM')}
+                                              style={{ flex: 1, padding: '10px 14px', borderRadius: '8px', background: '#6B38FB', color: '#fff', border: 'none', fontWeight: '700', cursor: 'pointer', fontSize: '12px' }}
+                                            >
+                                              Escalate to DRM
+                                            </button>
+                                          </div>
                                         </div>
                                       )}
 
-                                      <div style={{ display: 'flex', gap: '8px' }}>
-                                        <button 
-                                          onClick={handleValidateEvidence}
-                                          style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontWeight: '600' }}
-                                        >
-                                          ⚙️ Run Validation Script
-                                        </button>
-                                        <button 
-                                          onClick={handleSubmitRepresentment}
-                                          style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', background: '#6B38FB', color: '#fff', border: 'none', fontWeight: 'bold' }}
-                                        >
-                                          📤 Submit Representment
-                                        </button>
-                                      </div>
-                                    </div>
-                                  )}
+                                      {/* Allocation Compelling Evidence Workspace */}
+                                      {(cb.adjType === 'Formal Dispute Inflow' || cb.mSubStatus === 'Action Required - Awaiting Merchant Input') && !cb.isLocked && !cb.mSubStatus.includes('Submitted') && (
+                                        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                                          <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <span>📋</span> Compile Compelling Evidence (Allocation track)
+                                          </h3>
+                                          <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '16px', lineHeight: '1.4' }}>
+                                            Upload and specify your files to satisfy Visa's compelling data requirements. Run the formatting validation script before submission.
+                                          </p>
 
-                                  {/* Standard Upload Evidence / Action card */}
-                                  {!isClosed && !cb.mStatus.includes('Lost') && !cb.mStatus.includes('Won') && !cb.isLocked && !cb.isCollaboration && cb.adjType !== 'Formal Dispute Inflow' && cb.mSubStatus !== 'Action Required - Awaiting Merchant Input' && !cb.mSubStatus.includes('Submitted') && (
-                                    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-                                      <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <span>📤</span> Upload Evidence &amp; Actions
-                                      </h3>
-                                      <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '16px', lineHeight: '1.4' }}>
-                                        {reportTab === 'doc-verification' ? 'You can upload more evidence or add comments for this dispute case.' : 'You can upload document proof to contest this dispute or accept liability for the dispute transaction.'}
-                                      </p>
-                                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                        {reportTab === 'doc-pending' && (
-                                          cb.documents && cb.documents.length > 0 ? (
-                                            <button className="btn btn-outline" style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', height: '38px', fontWeight: '600', border: '1px solid #cbd5e1', background: '#fff', color: '#334155' }} onClick={() => { setActiveModal('contest'); }}>Upload More Evidence</button>
+                                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
+                                            <div>
+                                              <label style={{ fontSize: '11px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Core Verification File</label>
+                                              <input 
+                                                type="text" 
+                                                placeholder="e.g. pin_log_terminal.pdf" 
+                                                value={allocationCoreFile} 
+                                                onChange={(e) => setAllocationCoreFile(e.target.value)} 
+                                                style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '4px', outline: 'none', marginBottom: '4px' }} 
+                                              />
+                                              <input 
+                                                type="text" 
+                                                placeholder="Description, e.g. POS terminal chip read signature" 
+                                                value={allocationCoreDesc} 
+                                                onChange={(e) => setAllocationCoreDesc(e.target.value)} 
+                                                style={{ width: '100%', padding: '6px 10px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none', color: '#64748b' }} 
+                                              />
+                                            </div>
+
+                                            <div>
+                                              <label style={{ fontSize: '11px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Supplementary Proof Log</label>
+                                              <input 
+                                                type="text" 
+                                                placeholder="e.g. device_id_finger.json" 
+                                                value={allocationSupplFile} 
+                                                onChange={(e) => setAllocationSupplFile(e.target.value)} 
+                                                style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '4px', outline: 'none', marginBottom: '4px' }} 
+                                              />
+                                              <input 
+                                                type="text" 
+                                                placeholder="Description, e.g. Device metadata" 
+                                                value={allocationSupplDesc} 
+                                                onChange={(e) => setAllocationSupplDesc(e.target.value)} 
+                                                style={{ width: '100%', padding: '6px 10px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none', color: '#64748b' }} 
+                                              />
+                                            </div>
+
+                                            <div>
+                                              <label style={{ fontSize: '11px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Historical Validation Data</label>
+                                              <input 
+                                                type="text" 
+                                                placeholder="e.g. past_clearing.csv" 
+                                                value={allocationHistFile} 
+                                                onChange={(e) => setAllocationHistFile(e.target.value)} 
+                                                style={{ width: '100%', padding: '6px 10px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '4px', outline: 'none', marginBottom: '4px' }} 
+                                              />
+                                              <input 
+                                                type="text" 
+                                                placeholder="Description, e.g. Previous undisputed history" 
+                                                value={allocationHistDesc} 
+                                                onChange={(e) => setAllocationHistDesc(e.target.value)} 
+                                                style={{ width: '100%', padding: '6px 10px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none', color: '#64748b' }} 
+                                              />
+                                            </div>
+                                          </div>
+
+                                          {validationResult && (
+                                            <div style={{ padding: '10px 12px', borderRadius: '6px', fontSize: '11px', marginBottom: '14px', border: '1px solid', borderColor: validationResult.success ? '#bbf7d0' : '#fecaca', background: validationResult.success ? '#f0fdf4' : '#fdf2f2', color: validationResult.success ? '#15803d' : '#b91c1c' }}>
+                                              {validationResult.msg}
+                                            </div>
+                                          )}
+
+                                          <div style={{ display: 'flex', gap: '8px' }}>
+                                            <button 
+                                              onClick={handleValidateEvidence}
+                                              style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontWeight: '600' }}
+                                            >
+                                              ⚙️ Run Validation Script
+                                            </button>
+                                            <button 
+                                              onClick={handleSubmitRepresentment}
+                                              style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', background: '#6B38FB', color: '#fff', border: 'none', fontWeight: 'bold' }}
+                                            >
+                                              📤 Submit Representment
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Standard Upload Evidence / Action card */}
+                                      {!isClosed && !cb.mStatus.includes('Lost') && !cb.mStatus.includes('Won') && !cb.isLocked && !cb.isCollaboration && cb.adjType !== 'Formal Dispute Inflow' && cb.mSubStatus !== 'Action Required - Awaiting Merchant Input' && !cb.mSubStatus.includes('Submitted') && (
+                                        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                                          <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <span>📤</span> Upload Evidence &amp; Actions
+                                          </h3>
+                                          <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '16px', lineHeight: '1.4' }}>
+                                            {reportTab === 'doc-verification' ? 'You can upload more evidence or add comments for this dispute case.' : 'You can upload document proof to contest this dispute or accept liability for the dispute transaction.'}
+                                          </p>
+                                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                            {reportTab === 'doc-pending' && (
+                                              cb.documents && cb.documents.length > 0 ? (
+                                                <button className="btn btn-outline" style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', height: '38px', fontWeight: '600', border: '1px solid #cbd5e1', background: '#fff', color: '#334155' }} onClick={() => { setActiveModal('contest'); }}>Upload More Evidence</button>
+                                              ) : (
+                                                <>
+                                                  <button className="btn btn-outline" style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', height: '38px', fontWeight: '600', border: '1px solid #cbd5e1', background: '#fff', color: '#334155' }} onClick={() => { setActiveModal('action2'); }}>Accept Dispute</button>
+                                                  <button className="btn btn-primary" style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', background: '#6B38FB', color: '#fff', border: 'none', height: '38px', fontWeight: 'bold' }} onClick={() => { setActiveModal('contest'); }}>Contest &amp; Submit Proof</button>
+                                                </>
+                                              )
+                                            )}
+                                            {reportTab === 'doc-verification' && (
+                                              <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                                                <div style={{ position: 'relative', display: 'inline-block' }}>
+                                                  <button 
+                                                    onClick={() => setActiveModal('contest')} 
+                                                    style={{ 
+                                                      background: '#f1f5f9', 
+                                                      border: '1px solid #cbd5e1', 
+                                                      borderRadius: '50%', 
+                                                      width: '42px', 
+                                                      height: '42px', 
+                                                      cursor: 'pointer', 
+                                                      fontSize: '18px', 
+                                                      display: 'inline-flex', 
+                                                      alignItems: 'center', 
+                                                      justifyContent: 'center',
+                                                      transition: 'all 0.2s',
+                                                    }}
+                                                    onMouseEnter={(e) => { 
+                                                      e.currentTarget.style.background = '#e2e8f0'; 
+                                                      setHoveredIcon('upload');
+                                                    }}
+                                                    onMouseLeave={(e) => { 
+                                                      e.currentTarget.style.background = '#f1f5f9'; 
+                                                      setHoveredIcon(null);
+                                                    }}
+                                                  >
+                                                    📤
+                                                  </button>
+                                                  {hoveredIcon === 'upload' && (
+                                                    <div style={{
+                                                      position: 'absolute',
+                                                      bottom: '100%',
+                                                      left: '50%',
+                                                      transform: 'translateX(-50%) translateY(-8px)',
+                                                      background: '#1e293b',
+                                                      color: '#fff',
+                                                      padding: '6px 10px',
+                                                      borderRadius: '6px',
+                                                      fontSize: '11px',
+                                                      fontWeight: '600',
+                                                      whiteSpace: 'nowrap',
+                                                      pointerEvents: 'none',
+                                                      boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                                                      zIndex: 100
+                                                    }}>
+                                                      Upload More Evidence
+                                                      <div style={{
+                                                        position: 'absolute',
+                                                        top: '100%',
+                                                        left: '50%',
+                                                        transform: 'translateX(-50%)',
+                                                        borderWidth: '5px',
+                                                        borderStyle: 'solid',
+                                                        borderColor: '#1e293b transparent transparent transparent',
+                                                        width: 0,
+                                                        height: 0
+                                                      }} />
+                                                    </div>
+                                                  )}
+                                                </div>
+                                                <div style={{ position: 'relative', display: 'inline-block' }}>
+                                                  <button 
+                                                    onClick={() => setActiveModal('merchantComment')} 
+                                                    style={{ 
+                                                      background: '#f1f5f9', 
+                                                      border: '1px solid #cbd5e1', 
+                                                      borderRadius: '50%', 
+                                                      width: '42px', 
+                                                      height: '42px', 
+                                                      cursor: 'pointer', 
+                                                      fontSize: '18px', 
+                                                      display: 'inline-flex', 
+                                                      alignItems: 'center', 
+                                                      justifyContent: 'center',
+                                                      transition: 'all 0.2s',
+                                                    }}
+                                                    onMouseEnter={(e) => { 
+                                                      e.currentTarget.style.background = '#e2e8f0'; 
+                                                      setHoveredIcon('comment');
+                                                    }}
+                                                    onMouseLeave={(e) => { 
+                                                      e.currentTarget.style.background = '#f1f5f9'; 
+                                                      setHoveredIcon(null);
+                                                    }}
+                                                  >
+                                                    💬
+                                                  </button>
+                                                  {hoveredIcon === 'comment' && (
+                                                    <div style={{
+                                                      position: 'absolute',
+                                                      bottom: '100%',
+                                                      left: '50%',
+                                                      transform: 'translateX(-50%) translateY(-8px)',
+                                                      background: '#1e293b',
+                                                      color: '#fff',
+                                                      padding: '6px 10px',
+                                                      borderRadius: '6px',
+                                                      fontSize: '11px',
+                                                      fontWeight: '600',
+                                                      whiteSpace: 'nowrap',
+                                                      pointerEvents: 'none',
+                                                      boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                                                      zIndex: 100
+                                                    }}>
+                                                      Comment
+                                                      <div style={{
+                                                        position: 'absolute',
+                                                        top: '100%',
+                                                        left: '50%',
+                                                        transform: 'translateX(-50%)',
+                                                        borderWidth: '5px',
+                                                        borderStyle: 'solid',
+                                                        borderColor: '#1e293b transparent transparent transparent',
+                                                        width: 0,
+                                                        height: 0
+                                                      }} />
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            )}
+                                            {reportTab !== 'doc-pending' && reportTab !== 'doc-verification' && (
+                                              <div style={{ width: '100%' }}>{getActionBtn(cb)}</div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Evidence Documents Checklist */}
+                                      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                                        <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                          <span>📄</span> Evidence Documents
+                                        </h3>
+                                        {(cb.documents && cb.documents.length > 0) ? (
+                                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                            {cb.documents.map(doc => (
+                                              <div key={doc.id} style={{ padding: '12px', border: doc.status === 'Rejected' ? '1px solid #fca5a5' : '1px solid #e2e8f0', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '6px', background: doc.status === 'Rejected' ? '#fef2f2' : '#f8fafc' }}>
+                                                <div style={{ fontWeight: 'bold', fontSize: '13px', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                  <span style={{ fontSize: '16px' }}>📄</span>
+                                                  <span style={{ wordBreak: 'break-all' }}>{doc.filename}</span>
+                                                </div>
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', fontSize: '11px', color: '#64748B' }}>
+                                                  <div>By: <strong style={{ color: '#334155' }}>{doc.uploadedBy || 'Merchant'}</strong></div>
+                                                  <div>Status: <strong style={{ color: doc.status === 'Rejected' ? '#ef4444' : doc.status === 'Accepted' ? '#22c55e' : '#eab308' }}>{doc.status}</strong></div>
+                                                  <div>Date: <strong style={{ color: '#334155' }}>{new Date(doc.uploadedAt).toLocaleDateString()}</strong></div>
+                                                </div>
+                                                {doc.status === 'Rejected' && (
+                                                  <div style={{ fontSize: '11px', color: '#ef4444', background: '#fff', padding: '6px 10px', borderRadius: '4px', border: '1px dashed #fca5a5', marginTop: '4px' }}>
+                                                    <strong>Rejection Remarks:</strong> {doc.rejectionRemarks}
+                                                  </div>
+                                                )}
+                                                {doc.status === 'Rejected' && (
+                                                  <div style={{ marginTop: '8px' }}>
+                                                    <button style={{ fontSize: '12px', background: '#ef4444', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }} onClick={() => setActiveModal('contest')}>
+                                                      Re-upload Evidence
+                                                    </button>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            ))}
+                                          </div>
+                                        ) : (
+                                          <div style={{ color: '#64748B', fontSize: '13px', fontStyle: 'italic', textAlign: 'center', padding: '12px 0' }}>No evidence documents uploaded.</div>
+                                        )}
+                                      </div>
+
+                                      {/* Discussion & Comments History */}
+                                      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                                        <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                          <span>💬</span> Discussion &amp; Comments History
+                                        </h3>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px', maxHeight: '200px', overflowY: 'auto' }}>
+                                          {commentsList.length > 0 ? (
+                                            commentsList.map((c, i) => (
+                                              <div key={i} style={{ padding: '10px', borderRadius: '8px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '11px' }}>
+                                                  <span style={{ fontWeight: '700', color: '#6B38FB' }}>{c.by}</span>
+                                                  <span style={{ color: '#64748b' }}>{c.time}</span>
+                                                </div>
+                                                <div style={{ fontSize: '12px', color: '#334155' }}>{c.remarks}</div>
+                                              </div>
+                                            ))
                                           ) : (
-                                            <>
-                                              <button className="btn btn-outline" style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', height: '38px', fontWeight: '600', border: '1px solid #cbd5e1', background: '#fff', color: '#334155' }} onClick={() => { setActiveModal('action2'); }}>Accept Dispute</button>
-                                              <button className="btn btn-primary" style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', background: '#6B38FB', color: '#fff', border: 'none', height: '38px', fontWeight: 'bold' }} onClick={() => { setActiveModal('contest'); }}>Contest &amp; Submit Proof</button>
-                                            </>
-                                          )
-                                        )}
-                                        {reportTab === 'doc-verification' && (
-                                          <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-                                            <div style={{ position: 'relative', display: 'inline-block' }}>
-                                              <button 
-                                                onClick={() => setActiveModal('contest')} 
-                                                style={{ 
-                                                  background: '#f1f5f9', 
-                                                  border: '1px solid #cbd5e1', 
-                                                  borderRadius: '50%', 
-                                                  width: '42px', 
-                                                  height: '42px', 
-                                                  cursor: 'pointer', 
-                                                  fontSize: '18px', 
-                                                  display: 'inline-flex', 
-                                                  alignItems: 'center', 
-                                                  justifyContent: 'center',
-                                                  transition: 'all 0.2s',
-                                                }}
-                                                onMouseEnter={(e) => { 
-                                                  e.currentTarget.style.background = '#e2e8f0'; 
-                                                  setHoveredIcon('upload');
-                                                }}
-                                                onMouseLeave={(e) => { 
-                                                  e.currentTarget.style.background = '#f1f5f9'; 
-                                                  setHoveredIcon(null);
-                                                }}
-                                              >
-                                                📤
-                                              </button>
-                                              {hoveredIcon === 'upload' && (
-                                                <div style={{
-                                                  position: 'absolute',
-                                                  bottom: '100%',
-                                                  left: '50%',
-                                                  transform: 'translateX(-50%) translateY(-8px)',
-                                                  background: '#1e293b',
-                                                  color: '#fff',
-                                                  padding: '6px 10px',
-                                                  borderRadius: '6px',
-                                                  fontSize: '11px',
-                                                  fontWeight: '600',
-                                                  whiteSpace: 'nowrap',
-                                                  pointerEvents: 'none',
-                                                  boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-                                                  zIndex: 100
-                                                }}>
-                                                  Upload More Evidence
-                                                  <div style={{
-                                                    position: 'absolute',
-                                                    top: '100%',
-                                                    left: '50%',
-                                                    transform: 'translateX(-50%)',
-                                                    borderWidth: '5px',
-                                                    borderStyle: 'solid',
-                                                    borderColor: '#1e293b transparent transparent transparent',
-                                                    width: 0,
-                                                    height: 0
-                                                  }} />
-                                                </div>
-                                              )}
-                                            </div>
-                                            <div style={{ position: 'relative', display: 'inline-block' }}>
-                                              <button 
-                                                onClick={() => setActiveModal('merchantComment')} 
-                                                style={{ 
-                                                  background: '#f1f5f9', 
-                                                  border: '1px solid #cbd5e1', 
-                                                  borderRadius: '50%', 
-                                                  width: '42px', 
-                                                  height: '42px', 
-                                                  cursor: 'pointer', 
-                                                  fontSize: '18px', 
-                                                  display: 'inline-flex', 
-                                                  alignItems: 'center', 
-                                                  justifyContent: 'center',
-                                                  transition: 'all 0.2s',
-                                                }}
-                                                onMouseEnter={(e) => { 
-                                                  e.currentTarget.style.background = '#e2e8f0'; 
-                                                  setHoveredIcon('comment');
-                                                }}
-                                                onMouseLeave={(e) => { 
-                                                  e.currentTarget.style.background = '#f1f5f9'; 
-                                                  setHoveredIcon(null);
-                                                }}
-                                              >
-                                                💬
-                                              </button>
-                                              {hoveredIcon === 'comment' && (
-                                                <div style={{
-                                                  position: 'absolute',
-                                                  bottom: '100%',
-                                                  left: '50%',
-                                                  transform: 'translateX(-50%) translateY(-8px)',
-                                                  background: '#1e293b',
-                                                  color: '#fff',
-                                                  padding: '6px 10px',
-                                                  borderRadius: '6px',
-                                                  fontSize: '11px',
-                                                  fontWeight: '600',
-                                                  whiteSpace: 'nowrap',
-                                                  pointerEvents: 'none',
-                                                  boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-                                                  zIndex: 100
-                                                }}>
-                                                  Comment
-                                                  <div style={{
-                                                    position: 'absolute',
-                                                    top: '100%',
-                                                    left: '50%',
-                                                    transform: 'translateX(-50%)',
-                                                    borderWidth: '5px',
-                                                    borderStyle: 'solid',
-                                                    borderColor: '#1e293b transparent transparent transparent',
-                                                    width: 0,
-                                                    height: 0
-                                                  }} />
-                                                </div>
-                                              )}
-                                            </div>
+                                            <div style={{ color: '#64748b', fontSize: '12px', fontStyle: 'italic', textAlign: 'center', padding: '12px 0' }}>No comments recorded yet.</div>
+                                          )}
+                                        </div>
+                                        
+                                        {/* Inline Comment Box */}
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                          <input 
+                                            type="text" 
+                                            placeholder="Type a comment..." 
+                                            value={commentText} 
+                                            onChange={(e) => setCommentText(e.target.value)} 
+                                            style={{ flex: 1, padding: '8px 12px', fontSize: '12px', border: '1px solid #cbd5e1', borderRadius: '6px', outline: 'none' }}
+                                            onKeyPress={(e) => { if (e.key === 'Enter') submitComment(); }}
+                                          />
+                                          <button 
+                                            onClick={submitComment} 
+                                            style={{ padding: '8px 16px', background: '#6B38FB', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+                                          >
+                                            Send
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      {/* Transaction Details */}
+                                      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                                        <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b', marginBottom: '12px', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                          <span>💳 Transaction Details</span>
+                                          <span style={{ fontWeight: 'normal', color: '#64748B', fontSize: '12px' }}>Date: <span style={{ color: '#334155', fontWeight: '700' }}>{formatDateDisp(cb.txnDate)}</span></span>
+                                        </h3>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Case ID:</span> <strong style={{ color: '#1e293b' }}>{cb.id}</strong></div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>AR Number:</span> <strong style={{ color: '#1e293b' }}>{cb.rrn}</strong></div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>TXN Ref. Number:</span> <strong style={{ color: '#1e293b' }}>{cb.txnId}</strong></div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>MID:</span> <strong style={{ color: '#1e293b' }}>{cb.userId}</strong></div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>TID:</span> <strong style={{ color: '#1e293b' }}>10515104</strong></div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Amount:</span> <strong style={{ color: '#6B38FB', fontSize: '14px' }}>{formatINR ? formatINR(cb.txnAmt) : '₹' + cb.txnAmt}</strong></div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Card Number:</span> <strong style={{ color: '#1e293b' }}>457704******3989</strong></div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Merchant Name:</span> <strong style={{ color: '#1e293b' }}>{cb.userName}</strong></div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Approval Code:</span> <strong style={{ color: '#1e293b' }}>021838</strong></div>
+                                        </div>
+                                      </div>
+
+                                      {/* SLA Deadline Information */}
+                                      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                                        <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                          <span>⏳</span> SLA &amp; Deadline Information
+                                        </h3>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}>
+                                            <span style={{ color: '#64748b' }}>Response Deadline:</span>
+                                            <strong style={{ color: '#1e293b' }}>{cb.respondByDate ? formatDateDisp(cb.respondByDate) : 'N/A'}</strong>
                                           </div>
-                                        )}
-                                        {reportTab !== 'doc-pending' && reportTab !== 'doc-verification' && (
-                                          <div style={{ width: '100%' }}>{getActionBtn(cb)}</div>
-                                        )}
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}>
+                                            <span style={{ color: '#64748b' }}>SLA Status:</span>
+                                            <strong style={{ color: cb.aging <= 3 ? '#ef4444' : '#10b981' }}>
+                                              {cb.aging <= 3 ? '🔴 Urgent Action Required' : '🟢 Within SLA Limits'}
+                                            </strong>
+                                          </div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}>
+                                            <span style={{ color: '#64748b' }}>Remaining Days:</span>
+                                            <strong style={{ color: cb.aging <= 3 ? '#ef4444' : '#f59e0b' }}>{cb.aging} days remaining</strong>
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      {/* Dispute Details / Info */}
+                                      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                                        <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b', marginBottom: '12px', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                          <span>⚖️ Dispute Info</span>
+                                          <span style={{ fontWeight: 'normal', color: '#64748B', fontSize: '12px' }}>Dispute Date: <span style={{ color: '#334155', fontWeight: '700' }}>{formatDateDisp(cb.createdDate || cb.txnDate)}</span></span>
+                                        </h3>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Scheme:</span> <strong style={{ color: '#1e293b' }}>{cb.product || 'VISA'}</strong></div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Aggregator:</span> <strong style={{ color: '#1e293b' }}>{cb.aggregator || 'Payermax'}</strong></div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Visa Case ID:</span> <strong style={{ color: '#1e293b' }}>{cb.visaId || 'V-' + (cb.id || 'XXXX').substring(0, 6).toUpperCase()}</strong></div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Reason Code:</span> <strong style={{ color: '#1e293b' }}>13.1</strong></div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Remaining Days:</span> <strong style={{ color: cb.aging <= 3 ? '#ef4444' : '#f59e0b' }}>{cb.aging} days</strong></div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Current Status:</span> <strong style={{ color: '#1e293b' }}>{cb.mStatus}</strong></div>
+                                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Dispute Description:</span> <strong style={{ color: '#1e293b', fontWeight: '600', lineHeight: '1.4' }}>13.1 - Services Not Provided or Merchandise Not Received</strong></div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Admin Remarks:</span> <strong style={{ color: '#ef4444' }}>{cb.rejectReason || '-'}</strong></div>
+                                        </div>
+                                      </div>
+
+                                      {/* Activity Timeline details */}
+                                      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                                        {renderTimeline(cb, expandedTimeline, setExpandedTimeline, showToast, 'merchant')}
                                       </div>
                                     </div>
-                                  )}
-
-                                  {/* Evidence Documents List */}
-                                  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-                                    <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                      <span>📄</span> Evidence Documents
-                                    </h3>
-                                    {(cb.documents && cb.documents.length > 0) ? (
-                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                        {cb.documents.map(doc => (
-                                          <div key={doc.id} style={{ padding: '12px', border: doc.status === 'Rejected' ? '1px solid #fca5a5' : '1px solid #e2e8f0', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '6px', background: doc.status === 'Rejected' ? '#fef2f2' : '#f8fafc' }}>
-                                            <div style={{ fontWeight: 'bold', fontSize: '13px', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                              <span style={{ fontSize: '16px' }}>📄</span>
-                                              <span style={{ wordBreak: 'break-all' }}>{doc.filename}</span>
-                                            </div>
-                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', fontSize: '11px', color: '#64748B' }}>
-                                              <div>By: <strong style={{color: '#334155'}}>{doc.uploadedBy || 'Merchant'}</strong></div>
-                                              <div>Status: <strong style={{ color: doc.status === 'Rejected' ? '#ef4444' : doc.status === 'Accepted' ? '#22c55e' : '#eab308' }}>{doc.status}</strong></div>
-                                              <div>Date: <strong style={{color: '#334155'}}>{new Date(doc.uploadedAt).toLocaleDateString()}</strong></div>
-                                            </div>
-                                            {doc.status === 'Rejected' && (
-                                              <div style={{ fontSize: '11px', color: '#ef4444', background: '#fff', padding: '6px 10px', borderRadius: '4px', border: '1px dashed #fca5a5', marginTop: '4px' }}>
-                                                <strong>Rejection Remarks:</strong> {doc.rejectionRemarks}
-                                              </div>
-                                            )}
-                                            {doc.status === 'Rejected' && (
-                                              <div style={{ marginTop: '8px' }}>
-                                                <button style={{ fontSize: '12px', background: '#ef4444', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }} onClick={() => setActiveModal('contest')}>
-                                                  Re-upload Evidence
-                                                </button>
-                                              </div>
-                                            )}
-                                          </div>
-                                        ))}
-                                      </div>
-                                    ) : (
-                                      <div style={{ color: '#64748B', fontSize: '13px', fontStyle: 'italic', textAlign: 'center', padding: '12px 0' }}>No evidence documents uploaded.</div>
-                                    )}
                                   </div>
-
-                                  {/* Timeline (moved below evidence documents) */}
-                                  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-                                    {renderTimeline(cb, expandedTimeline, setExpandedTimeline, showToast, 'merchant')}
-                                  </div>
-                                </div>
-
-                                {/* Right Column: Transaction Details, Dispute Info */}
-                                <div style={{ flex: '1 1 calc(50% - 10px)', minWidth: '300px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                  {/* Transaction Details */}
-                                  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-                                    <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b', marginBottom: '12px', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                      <span>💳 Transaction Details</span>
-                                      <span style={{ fontWeight: 'normal', color: '#64748B', fontSize: '12px' }}>Date: <span style={{color:'#334155', fontWeight:'700'}}>{formatDateDisp(cb.txnDate)}</span></span>
-                                    </h3>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Case ID:</span> <strong style={{color: '#1e293b'}}>{cb.id}</strong></div>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>AR Number:</span> <strong style={{color: '#1e293b'}}>{cb.rrn}</strong></div>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>TXN Ref. Number:</span> <strong style={{color: '#1e293b'}}>{cb.txnId}</strong></div>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>MID:</span> <strong style={{color: '#1e293b'}}>{cb.userId}</strong></div>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>TID:</span> <strong style={{color: '#1e293b'}}>10515104</strong></div>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Amount:</span> <strong style={{color: '#6B38FB', fontSize: '14px'}}>{formatINR ? formatINR(cb.txnAmt) : '₹' + cb.txnAmt}</strong></div>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Card Number:</span> <strong style={{color: '#1e293b'}}>457704******3989</strong></div>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Merchant Name:</span> <strong style={{color: '#1e293b'}}>{cb.userName}</strong></div>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Approval Code:</span> <strong style={{color: '#1e293b'}}>021838</strong></div>
-                                    </div>
-                                  </div>
-
-                                  {/* Dispute Details */}
-                                  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-                                    <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b', marginBottom: '12px', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                      <span>⚖️ Dispute Info</span>
-                                      <span style={{ fontWeight: 'normal', color: '#64748B', fontSize: '12px' }}>Dispute Date: <span style={{color:'#334155', fontWeight:'700'}}>{formatDateDisp(cb.createdDate || cb.txnDate)}</span></span>
-                                    </h3>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Scheme:</span> <strong style={{color: '#1e293b'}}>{cb.product || 'VISA'}</strong></div>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Aggregator:</span> <strong style={{color: '#1e293b'}}>{cb.aggregator || 'Payermax'}</strong></div>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Visa Case ID:</span> <strong style={{color: '#1e293b'}}>{cb.visaId || 'V-' + (cb.id || 'XXXX').substring(0, 6).toUpperCase()}</strong></div>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Reason Code:</span> <strong style={{color: '#1e293b'}}>13.1</strong></div>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Remaining Days:</span> <strong style={{color: cb.aging <= 3 ? '#ef4444' : '#f59e0b'}}>{cb.aging} days</strong></div>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Current Status:</span> <strong style={{color: '#1e293b'}}>{cb.mStatus}</strong></div>
-                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Dispute Description:</span> <strong style={{color: '#1e293b', fontWeight: '600', lineHeight: '1.4'}}>13.1 - Services Not Provided or Merchandise Not Received</strong></div>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: '6px' }}><span style={{ color: '#64748B' }}>Admin Remarks:</span> <strong style={{color: '#ef4444'}}>{cb.rejectReason || '-'}</strong></div>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
+                                );
+                              })()}
                             </div>
                           </div>
                         );

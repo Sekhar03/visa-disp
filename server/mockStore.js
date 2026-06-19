@@ -105,10 +105,10 @@ let deflectionRules = [
 ];
 
 let rdrRules = [
-  { merchant: 'masteruser', programId: 'VISA_RDR_CORE', rdrMaxLimit: 50.00, excludedSkus: 'HIGH_RISK_ELECTRONICS' },
-  { merchant: 'masteruser', programId: 'VISA_RDR_CORE', rdrMaxLimit: 75.00, excludedSkus: 'HIGH_RISK_ELECTRONICS' },
-  { merchant: 'Test@isu', programId: 'VISA_RDR_CORE', rdrMaxLimit: 30.00, excludedSkus: 'HIGH_RISK_ELECTRONICS' },
-  { merchant: 'Test@isu', programId: 'VISA_RDR_CORE', rdrMaxLimit: 120.00, excludedSkus: 'HIGH_RISK_ELECTRONICS' }
+  { ruleName: 'Visa Core Low Value', merchant: 'masteruser', programId: 'VISA_RDR_CORE', rdrMaxLimit: 50.00, excludedSkus: 'HIGH_RISK_ELECTRONICS', status: 'Active', action: 'Accept', conditions: [] },
+  { ruleName: 'Visa Core Mid Value', merchant: 'masteruser', programId: 'VISA_RDR_CORE', rdrMaxLimit: 75.00, excludedSkus: 'HIGH_RISK_ELECTRONICS', status: 'Active', action: 'Accept', conditions: [] },
+  { ruleName: 'Test ISU Low Value', merchant: 'Test@isu', programId: 'VISA_RDR_CORE', rdrMaxLimit: 30.00, excludedSkus: 'HIGH_RISK_ELECTRONICS', status: 'Active', action: 'Accept', conditions: [] },
+  { ruleName: 'Test ISU High Value', merchant: 'Test@isu', programId: 'VISA_RDR_CORE', rdrMaxLimit: 120.00, excludedSkus: 'HIGH_RISK_ELECTRONICS', status: 'Active', action: 'Accept', conditions: [] }
 ];
 
 const caidMap = {};
@@ -150,12 +150,54 @@ function saveDeflectionRules(merchant, rules) {
 
 function getRdrRules(merchant) {
   if (!merchant) return rdrRules;
-  return rdrRules.filter(r => r.merchant === merchant);
+  if (merchant === 'Global' || merchant === 'ALL') {
+    return rdrRules.filter(r => r.merchant === 'Global' || r.merchant === 'ALL');
+  }
+  // Merchants inherit global rules
+  return rdrRules.filter(r => r.merchant === merchant || r.merchant === 'Global' || r.merchant === 'ALL');
 }
 
 function saveRdrRules(merchant, rules) {
   rdrRules = rdrRules.filter(r => r.merchant !== merchant);
   rules.forEach(r => rdrRules.push({ ...r, merchant }));
+}
+
+function validateRdrRules(allRules) {
+  const merchants = new Set(['masteruser', 'Test@isu']);
+  allRules.forEach(r => {
+    if (r.merchant && r.merchant !== 'Global' && r.merchant !== 'ALL') {
+      merchants.add(r.merchant);
+    }
+  });
+
+  const activeGlobalCount = allRules.filter(r => (r.merchant === 'Global' || r.merchant === 'ALL') && r.status === 'Active').length;
+
+  for (const merchant of merchants) {
+    const activeMerchantCount = allRules.filter(r => r.merchant === merchant && r.status === 'Active').length;
+    if (activeGlobalCount + activeMerchantCount > 10) {
+      return { valid: false, message: 'Maximum of 10 active rules allowed per merchant account' };
+    }
+  }
+
+  // Duplicate name check
+  const names = {};
+  for (const rule of allRules) {
+    const m = rule.merchant || 'Global';
+    const key = `${m}:${rule.ruleName}`;
+    if (names[key]) {
+      return { valid: false, message: `Duplicate rule name "${rule.ruleName}" is not allowed.` };
+    }
+    names[key] = true;
+  }
+
+  // Conditions count check
+  for (const rule of allRules) {
+    if (rule.conditions && rule.conditions.length > 8) {
+      return { valid: false, message: 'Maximum of 8 conditions allowed per rule' };
+    }
+  }
+
+  return { valid: true };
 }
 
 // Preload demo data for cold starts (refreshed again when MOCK_MODE is confirmed)
@@ -178,5 +220,6 @@ module.exports = {
   getDeflectionRules,
   saveDeflectionRules,
   getRdrRules,
-  saveRdrRules
+  saveRdrRules,
+  validateRdrRules
 };
